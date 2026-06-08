@@ -50,6 +50,11 @@ struct ContentView: View {
                     Label("Articles", systemImage: "newspaper.fill")
                 }
 
+            DragonBooksView()
+                .tabItem {
+                    Label("Books", systemImage: "book.closed.fill")
+                }
+
             PlaceholderSectionView(title: "YouTube", subtitle: "Watch Later and learning feed")
                 .tabItem {
                     Label("YouTube", systemImage: "play.rectangle.fill")
@@ -449,6 +454,203 @@ struct ArticleDetailView: View {
     }
 }
 
+// MARK: - Books
+
+struct DragonBooksView: View {
+    @State private var books: [DragonBook] = []
+    @State private var isLoading = false
+    @State private var errorText = ""
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Books")
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text("Lightweight reading snapshot")
+                                .font(.headline)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await loadBooks()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    if isLoading && books.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ProgressView()
+                                .tint(DragonTheme.red)
+
+                            Text("Loading books...")
+                                .foregroundStyle(.gray)
+                                .font(.footnote)
+                        }
+                    }
+
+                    if !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(DragonTheme.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    LazyVStack(spacing: 12) {
+                        ForEach(books) { book in
+                            BookRow(book: book)
+                        }
+                    }
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .task {
+            await loadBooks()
+        }
+    }
+
+    @MainActor
+    private func loadBooks() async {
+        isLoading = true
+        errorText = ""
+
+        do {
+            let response = try await DragonAPIClient.shared.fetchBooks(limit: 20)
+
+            if response.ok {
+                books = response.items
+            } else {
+                errorText = "Dragon API responded but ok=false"
+            }
+        } catch {
+            errorText = "Could not load /api/v1/books: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+}
+
+struct BookRow: View {
+    let book: DragonBook
+
+    private var authorsText: String {
+        let joined = book.authors.joined(separator: ", ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !joined.isEmpty {
+            return joined
+        }
+        return book.author.isEmpty ? "Unknown author" : book.author
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Group {
+                if let coverURL = URL(string: book.cover.trimmingCharacters(in: .whitespacesAndNewlines)), !book.cover.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    AsyncImage(url: coverURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_):
+                            placeholderCover
+                        case .empty:
+                            placeholderCover
+                        @unknown default:
+                            placeholderCover
+                        }
+                    }
+                } else {
+                    placeholderCover
+                }
+            }
+            .frame(width: 52, height: 78)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(book.title.isEmpty ? "Untitled book" : book.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                Text(authorsText)
+                    .font(.subheadline)
+                    .foregroundStyle(DragonTheme.red)
+                    .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    if !book.year.isEmpty {
+                        Text(book.year)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !book.status.isEmpty {
+                        Text(book.status)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !book.score.isEmpty {
+                        Text(book.score)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+                }
+
+                if !book.excerpt.isEmpty {
+                    Text(book.excerpt)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .lineLimit(3)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var placeholderCover: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "book.closed")
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
 // MARK: - Placeholder Sections
 
 struct PlaceholderSectionView: View {
@@ -769,6 +971,24 @@ final class DragonAPIClient {
 
         return try JSONDecoder().decode(DragonArticlesResponse.self, from: data)
     }
+
+    func fetchBooks(limit: Int = 20) async throws -> DragonBooksResponse {
+        guard let url = endpointURL(path: "/api/v1/books?limit=\(limit)") else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw DragonAPIError.httpStatus(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(DragonBooksResponse.self, from: data)
+    }
 }
 
 enum DragonAPIError: LocalizedError {
@@ -836,6 +1056,25 @@ struct DragonArticle: Decodable, Identifiable {
     let url: String
     let published_at: String
     let saved_at: String
+    let excerpt: String
+}
+
+struct DragonBooksResponse: Decodable {
+    let api_version: String
+    let ok: Bool
+    let items: [DragonBook]
+    let count: Int
+}
+
+struct DragonBook: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let author: String
+    let authors: [String]
+    let cover: String
+    let year: String
+    let status: String
+    let score: String
     let excerpt: String
 }
 
