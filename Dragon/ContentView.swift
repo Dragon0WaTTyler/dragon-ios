@@ -1054,16 +1054,37 @@ struct YouTubeVideoRow: View {
         return url
     }
 
-    private var metadataText: String {
-        [video.duration, video.published_at, video.saved_at].filter { !$0.isEmpty }.joined(separator: " • ")
-    }
-
     private var tagsText: String {
         [video.section, video.group, video.playlist].filter { !$0.isEmpty }.joined(separator: " • ")
     }
 
+    private var channelInitial: String? {
+        let trimmed = video.channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else {
+            return nil
+        }
+        return String(first).uppercased()
+    }
+
+    private var subtitleText: String {
+        let channel = video.channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let metadataParts = [video.published_at, video.saved_at].filter { !$0.isEmpty }
+        let metadata = metadataParts.isEmpty ? video.duration.trimmingCharacters(in: .whitespacesAndNewlines) : metadataParts.joined(separator: " • ")
+
+        switch (channel.isEmpty, metadata.isEmpty) {
+        case (true, true):
+            return ""
+        case (false, true):
+            return channel
+        case (true, false):
+            return metadata
+        case (false, false):
+            return "\(channel) • \(metadata)"
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             ZStack(alignment: .bottomTrailing) {
                 Group {
                     if let thumbnailURL {
@@ -1088,10 +1109,6 @@ struct YouTubeVideoRow: View {
                 .frame(maxWidth: .infinity)
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
-                )
 
                 if !video.duration.isEmpty {
                     Text(video.duration)
@@ -1105,77 +1122,93 @@ struct YouTubeVideoRow: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(video.title.isEmpty ? "Untitled video" : video.title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
+            HStack(alignment: .top, spacing: 12) {
+                channelAvatar
 
-                if !video.channel.isEmpty {
-                    Text(video.channel)
-                        .font(.subheadline)
-                        .foregroundStyle(DragonTheme.red)
-                        .lineLimit(1)
-                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(video.title.isEmpty ? "Untitled video" : video.title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(3)
 
-                if !metadataText.isEmpty {
-                    Text(metadataText)
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-                        .lineLimit(2)
-                }
-
-                if !tagsText.isEmpty {
-                    Text(tagsText)
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-                        .lineLimit(2)
-                }
-            }
-
-            HStack {
-                Button {
-                    if let videoURL {
-                        openURL(videoURL)
+                    if !subtitleText.isEmpty {
+                        Text(subtitleText)
+                            .font(.subheadline)
+                            .foregroundStyle(.gray)
+                            .lineLimit(2)
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "safari")
-                        Text(videoURL == nil ? "Unavailable" : "Open in YouTube")
-                            .fontWeight(.semibold)
+
+                    if !tagsText.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(tagsText.split(separator: "•").map { $0.trimmingCharacters(in: .whitespaces) }, id: \.self) { tag in
+                                Text(tag)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(DragonTheme.red.opacity(0.92))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(DragonTheme.red.opacity(0.09))
+                                    .clipShape(Capsule())
+                            }
+                        }
                     }
-                    .font(.footnote)
-                    .foregroundStyle(videoURL == nil ? .gray : .white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(videoURL == nil ? DragonTheme.card : DragonTheme.red)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(DragonTheme.red.opacity(videoURL == nil ? 0.3 : 0.0), lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    HStack(spacing: 12) {
+                        Button {
+                            if let videoURL {
+                                openURL(videoURL)
+                            }
+                        } label: {
+                            Label(videoURL == nil ? "Unavailable" : "Open in YouTube", systemImage: "safari")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(videoURL == nil ? .gray : .white)
+                        }
+                        .disabled(videoURL == nil)
+
+                        if videoURL != nil {
+                            Text("•")
+                                .font(.caption)
+                                .foregroundStyle(.gray.opacity(0.7))
+                        }
+                    }
                 }
-                .disabled(videoURL == nil)
 
                 Spacer(minLength: 0)
+
+                Image(systemName: "ellipsis.vertical")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.gray.opacity(0.8))
+                    .padding(.top, 2)
             }
         }
-        .padding(14)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DragonTheme.card)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var channelAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(DragonTheme.red.opacity(0.18))
+
+            if let channelInitial {
+                Text(channelInitial)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 32, height: 32)
     }
 
     private var placeholderThumbnail: some View {
         ZStack {
-            Color.black.opacity(0.45)
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.black.opacity(0.55))
             Image(systemName: "play.rectangle")
-                .font(.title2)
-                .foregroundStyle(DragonTheme.red)
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red.opacity(0.9))
         }
     }
 }
