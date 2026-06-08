@@ -55,7 +55,7 @@ struct ContentView: View {
                     Label("Books", systemImage: "book.closed.fill")
                 }
 
-            PlaceholderSectionView(title: "YouTube", subtitle: "Watch Later and learning feed")
+            DragonYouTubeView()
                 .tabItem {
                     Label("YouTube", systemImage: "play.rectangle.fill")
                 }
@@ -748,6 +748,438 @@ struct DragonMoviesView: View {
     }
 }
 
+// MARK: - YouTube
+
+struct DragonYouTubeView: View {
+    @State private var videos: [DragonYouTubeVideo] = []
+    @State private var sections: [DragonYouTubeSection] = []
+    @State private var selectedMode: DragonYouTubeMode = .watchLater
+    @State private var selectedSectionKey: String?
+    @State private var isLoading = false
+    @State private var isLoadingSections = false
+    @State private var errorText = ""
+    @State private var didLoadSections = false
+
+    private let limit = 20
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("YouTube")
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text("Lightweight video snapshot")
+                                .font(.headline)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await refreshCurrentBrowser()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    Picker("YouTube Mode", selection: $selectedMode) {
+                        Text("Watch Later").tag(DragonYouTubeMode.watchLater)
+                        Text("PocketTube").tag(DragonYouTubeMode.pocketTube)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: selectedMode) { _, newValue in
+                        Task {
+                            await handleModeChange(newValue)
+                        }
+                    }
+
+                    if selectedMode == .pocketTube {
+                        if isLoadingSections && sections.isEmpty {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                    .tint(DragonTheme.red)
+                                Text("Loading sections...")
+                                    .foregroundStyle(.gray)
+                                    .font(.footnote)
+                            }
+                        } else if !pocketTubeSections.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 10) {
+                                    ForEach(pocketTubeSections) { section in
+                                        Button {
+                                            selectedSectionKey = section.key
+                                            Task {
+                                                await loadVideos()
+                                            }
+                                        } label: {
+                                            Text(section.label)
+                                                .font(.footnote.weight(.semibold))
+                                                .foregroundStyle(isSelectedSection(section) ? .white : .gray)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 10)
+                                                .background(isSelectedSection(section) ? DragonTheme.red : DragonTheme.card)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 999)
+                                                        .stroke(DragonTheme.red.opacity(isSelectedSection(section) ? 0.0 : 0.35), lineWidth: 1)
+                                                )
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if isLoading && videos.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ProgressView()
+                                .tint(DragonTheme.red)
+
+                            Text("Loading videos...")
+                                .foregroundStyle(.gray)
+                                .font(.footnote)
+                        }
+                    }
+
+                    if !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(DragonTheme.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if videos.isEmpty && !isLoading && errorText.isEmpty {
+                        Text(emptyStateText)
+                            .font(.footnote)
+                            .foregroundStyle(.gray)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    LazyVStack(spacing: 12) {
+                        ForEach(videos) { video in
+                            YouTubeVideoRow(video: video)
+                        }
+                    }
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .task {
+            await initializeYouTubeBrowser()
+        }
+    }
+
+    @MainActor
+    private func refreshCurrentBrowser() async {
+        if selectedMode == .pocketTube {
+            await loadSectionsIfNeeded(forceReload: true)
+        }
+        await loadVideos()
+    }
+
+    private var emptyStateText: String {
+        switch selectedMode {
+        case .watchLater:
+            return "Watch Later has no videos right now."
+        case .pocketTube:
+            let sectionName = currentSectionLabel ?? "this section"
+            return "\(sectionName) has no videos right now."
+        }
+    }
+
+    private var currentSectionLabel: String? {
+        guard let selectedSectionKey else {
+            return nil
+        }
+        return sections.first(where: { $0.key == selectedSectionKey })?.label
+    }
+
+    private func isSelectedSection(_ section: DragonYouTubeSection) -> Bool {
+        selectedSectionKey == section.key
+    }
+
+    private var pocketTubeSections: [DragonYouTubeSection] {
+        sections.filter { $0.key.lowercased() != "watchlater" }
+    }
+
+    private var preferredPocketTubeSectionKey: String? {
+        pocketTubeSections.first?.key
+    }
+
+    @MainActor
+    private func initializeYouTubeBrowser() async {
+        if selectedMode == .pocketTube {
+            await loadSectionsIfNeeded(forceReload: false)
+        }
+        await loadVideos()
+    }
+
+    @MainActor
+    private func handleModeChange(_ newMode: DragonYouTubeMode) async {
+        if newMode == .pocketTube {
+            await loadSectionsIfNeeded(forceReload: false)
+            if selectedSectionKey == nil {
+                selectedSectionKey = preferredPocketTubeSectionKey
+            }
+        }
+        await loadVideos()
+    }
+
+    @MainActor
+    private func loadSectionsIfNeeded(forceReload: Bool) async {
+        if isLoadingSections && !forceReload {
+            return
+        }
+
+        if didLoadSections && !forceReload && !sections.isEmpty {
+            return
+        }
+
+        isLoadingSections = true
+        errorText = ""
+
+        do {
+            let response = try await DragonAPIClient.shared.fetchYouTubeSections()
+            if response.ok {
+                sections = response.sections.sorted { left, right in
+                    if left.key == "watchlater" {
+                        return true
+                    }
+                    if right.key == "watchlater" {
+                        return false
+                    }
+                    return left.label.localizedCaseInsensitiveCompare(right.label) == .orderedAscending
+                }
+                didLoadSections = true
+                let selectedKey = selectedSectionKey ?? ""
+                if selectedKey.isEmpty || !sections.contains(where: { $0.key == selectedKey }) || selectedKey.lowercased() == "watchlater" {
+                    selectedSectionKey = preferredPocketTubeSectionKey
+                }
+            } else {
+                errorText = "Dragon API responded but ok=false"
+            }
+        } catch {
+            errorText = "Could not load /api/v1/youtube/sections: \(error.localizedDescription)"
+        }
+
+        isLoadingSections = false
+    }
+
+    @MainActor
+    private func loadVideos() async {
+        isLoading = true
+        errorText = ""
+
+        do {
+            let response: DragonYouTubeResponse
+            switch selectedMode {
+            case .watchLater:
+                response = try await DragonAPIClient.shared.fetchYouTubeVideos(source: "watchlater", limit: limit)
+            case .pocketTube:
+                if sections.isEmpty {
+                    await loadSectionsIfNeeded(forceReload: false)
+                }
+                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                    source: "pockettube",
+                    section: selectedSectionKey,
+                    limit: limit
+                )
+            }
+
+            if response.ok {
+                videos = response.items
+            } else {
+                errorText = "Dragon API responded but ok=false"
+            }
+        } catch {
+            errorText = "Could not load /api/v1/youtube: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+}
+
+enum DragonYouTubeMode: String, CaseIterable, Identifiable {
+    case watchLater
+    case pocketTube
+
+    var id: String { rawValue }
+}
+
+struct YouTubeVideoRow: View {
+    let video: DragonYouTubeVideo
+    @Environment(\.openURL) private var openURL
+
+    private var thumbnailURL: URL? {
+        let trimmed = video.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        return URL(string: trimmed)
+    }
+
+    private var videoURL: URL? {
+        let trimmed = video.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        return url
+    }
+
+    private var metadataText: String {
+        [video.duration, video.published_at, video.saved_at].filter { !$0.isEmpty }.joined(separator: " • ")
+    }
+
+    private var tagsText: String {
+        [video.section, video.group, video.playlist].filter { !$0.isEmpty }.joined(separator: " • ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if let thumbnailURL {
+                        AsyncImage(url: thumbnailURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            case .failure(_):
+                                placeholderThumbnail
+                            case .empty:
+                                placeholderThumbnail
+                            @unknown default:
+                                placeholderThumbnail
+                            }
+                        }
+                    } else {
+                        placeholderThumbnail
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+                )
+
+                if !video.duration.isEmpty {
+                    Text(video.duration)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.85))
+                        .clipShape(Capsule())
+                        .padding(10)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(video.title.isEmpty ? "Untitled video" : video.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+
+                if !video.channel.isEmpty {
+                    Text(video.channel)
+                        .font(.subheadline)
+                        .foregroundStyle(DragonTheme.red)
+                        .lineLimit(1)
+                }
+
+                if !metadataText.isEmpty {
+                    Text(metadataText)
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                        .lineLimit(2)
+                }
+
+                if !tagsText.isEmpty {
+                    Text(tagsText)
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                        .lineLimit(2)
+                }
+            }
+
+            HStack {
+                Button {
+                    if let videoURL {
+                        openURL(videoURL)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "safari")
+                        Text(videoURL == nil ? "Unavailable" : "Open in YouTube")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(videoURL == nil ? .gray : .white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(videoURL == nil ? DragonTheme.card : DragonTheme.red)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(DragonTheme.red.opacity(videoURL == nil ? 0.3 : 0.0), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .disabled(videoURL == nil)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var placeholderThumbnail: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "play.rectangle")
+                .font(.title2)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
 struct MovieRow: View {
     let movie: DragonMovie
 
@@ -1132,8 +1564,14 @@ final class DragonAPIClient {
 
     private init() {}
 
-    private func endpointURL(path: String) -> URL? {
-        URL(string: "\(backendBaseURL)\(path)")
+    private func endpointURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
+        guard var components = URLComponents(string: backendBaseURL) else {
+            return nil
+        }
+
+        components.path = path
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        return components.url
     }
 
     func fetchHome() async throws -> DragonHomeResponse {
@@ -1206,6 +1644,47 @@ final class DragonAPIClient {
         }
 
         return try JSONDecoder().decode(DragonMoviesResponse.self, from: data)
+    }
+
+    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 20) async throws -> DragonYouTubeResponse {
+        var queryItems = [URLQueryItem(name: "source", value: source), URLQueryItem(name: "limit", value: String(limit))]
+        if let section, !section.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryItems.append(URLQueryItem(name: "section", value: section))
+        }
+
+        guard let url = endpointURL(path: "/api/v1/youtube", queryItems: queryItems) else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw DragonAPIError.httpStatus(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(DragonYouTubeResponse.self, from: data)
+    }
+
+    func fetchYouTubeSections() async throws -> DragonYouTubeSectionsResponse {
+        guard let url = endpointURL(path: "/api/v1/youtube/sections") else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw DragonAPIError.httpStatus(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(DragonYouTubeSectionsResponse.self, from: data)
     }
 }
 
@@ -1368,6 +1847,124 @@ struct DragonMovie: Decodable, Identifiable {
         }
 
         return ""
+    }
+}
+
+struct DragonYouTubeResponse: Decodable {
+    let api_version: String
+    let ok: Bool
+    let items: [DragonYouTubeVideo]
+    let count: Int
+}
+
+struct DragonYouTubeSectionsResponse: Decodable {
+    let api_version: String
+    let ok: Bool
+    let sections: [DragonYouTubeSection]
+}
+
+struct DragonYouTubeSection: Decodable, Identifiable {
+    let key: String
+    let label: String
+    let count: Int
+
+    var id: String {
+        key
+    }
+}
+
+struct DragonYouTubeVideo: Decodable, Identifiable {
+    let id: String
+    let video_id: String
+    let title: String
+    let channel: String
+    let thumbnail: String
+    let url: String
+    let published_at: String
+    let saved_at: String
+    let duration: String
+    let section: String
+    let group: String
+    let playlist: String
+    let source: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case video_id
+        case videoId
+        case title
+        case channel
+        case channel_title
+        case thumbnail
+        case thumbnail_url
+        case url
+        case published_at
+        case publishedAt
+        case saved_at
+        case savedAt
+        case duration
+        case section
+        case group
+        case playlist
+        case playlist_title
+        case source
+    }
+
+    init(id: String, video_id: String, title: String, channel: String, thumbnail: String, url: String, published_at: String, saved_at: String, duration: String, section: String, group: String, playlist: String, source: String) {
+        self.id = id
+        self.video_id = video_id
+        self.title = title
+        self.channel = channel
+        self.thumbnail = thumbnail
+        self.url = url
+        self.published_at = published_at
+        self.saved_at = saved_at
+        self.duration = duration
+        self.section = section
+        self.group = group
+        self.playlist = playlist
+        self.source = source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = DragonYouTubeVideo.decodeString(container, keys: [.id, .video_id, .videoId])
+        self.video_id = DragonYouTubeVideo.decodeString(container, keys: [.video_id, .videoId, .id])
+        self.title = DragonYouTubeVideo.decodeString(container, keys: [.title], default: "Untitled video")
+        self.channel = DragonYouTubeVideo.decodeString(container, keys: [.channel, .channel_title])
+        self.thumbnail = DragonYouTubeVideo.decodeString(container, keys: [.thumbnail, .thumbnail_url])
+        self.url = DragonYouTubeVideo.decodeString(container, keys: [.url])
+        self.published_at = DragonYouTubeVideo.decodeString(container, keys: [.published_at, .publishedAt])
+        self.saved_at = DragonYouTubeVideo.decodeString(container, keys: [.saved_at, .savedAt])
+        self.duration = DragonYouTubeVideo.decodeString(container, keys: [.duration])
+        self.section = DragonYouTubeVideo.decodeString(container, keys: [.section])
+        self.group = DragonYouTubeVideo.decodeString(container, keys: [.group])
+        self.playlist = DragonYouTubeVideo.decodeString(container, keys: [.playlist, .playlist_title])
+        self.source = DragonYouTubeVideo.decodeString(container, keys: [.source], default: "unknown")
+    }
+
+    private static func decodeString(_ container: KeyedDecodingContainer<CodingKeys>, keys: [CodingKeys], default defaultValue: String = "") -> String {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                if value.rounded(.towardZero) == value {
+                    return String(Int(value))
+                }
+                return String(value)
+            }
+        }
+
+        return defaultValue
     }
 }
 
