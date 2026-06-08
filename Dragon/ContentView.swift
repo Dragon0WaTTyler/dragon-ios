@@ -60,7 +60,7 @@ struct ContentView: View {
                     Label("YouTube", systemImage: "play.rectangle.fill")
                 }
 
-            PlaceholderSectionView(title: "Movies", subtitle: "Cinema archive and watch state")
+            DragonMoviesView()
                 .tabItem {
                     Label("Movies", systemImage: "film.fill")
                 }
@@ -651,6 +651,206 @@ struct BookRow: View {
     }
 }
 
+// MARK: - Movies
+
+struct DragonMoviesView: View {
+    @State private var movies: [DragonMovie] = []
+    @State private var isLoading = false
+    @State private var errorText = ""
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Movies")
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text("Lightweight cinema snapshot")
+                                .font(.headline)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await loadMovies()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    if isLoading && movies.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ProgressView()
+                                .tint(DragonTheme.red)
+
+                            Text("Loading movies...")
+                                .foregroundStyle(.gray)
+                                .font(.footnote)
+                        }
+                    }
+
+                    if !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(DragonTheme.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    LazyVStack(spacing: 12) {
+                        ForEach(movies) { movie in
+                            MovieRow(movie: movie)
+                        }
+                    }
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .task {
+            await loadMovies()
+        }
+    }
+
+    @MainActor
+    private func loadMovies() async {
+        isLoading = true
+        errorText = ""
+
+        do {
+            let response = try await DragonAPIClient.shared.fetchMovies(limit: 20)
+
+            if response.ok {
+                movies = response.items
+            } else {
+                errorText = "Dragon API responded but ok=false"
+            }
+        } catch {
+            errorText = "Could not load /api/v1/movies: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+}
+
+struct MovieRow: View {
+    let movie: DragonMovie
+
+    private var posterURL: URL? {
+        let trimmed = movie.poster.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        return URL(string: trimmed)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Group {
+                if let posterURL {
+                    AsyncImage(url: posterURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_):
+                            placeholderPoster
+                        case .empty:
+                            placeholderPoster
+                        @unknown default:
+                            placeholderPoster
+                        }
+                    }
+                } else {
+                    placeholderPoster
+                }
+            }
+            .frame(width: 52, height: 78)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(movie.title.isEmpty ? "Untitled movie" : movie.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    if !movie.year.isEmpty {
+                        Text(movie.year)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !movie.status.isEmpty {
+                        Text(movie.status)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !movie.score.isEmpty {
+                        Text(movie.score)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !movie.type.isEmpty {
+                        Text(movie.type)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+                }
+
+                if !movie.overview.isEmpty {
+                    Text(movie.overview)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .lineLimit(3)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var placeholderPoster: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "film")
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
 // MARK: - Placeholder Sections
 
 struct PlaceholderSectionView: View {
@@ -989,6 +1189,24 @@ final class DragonAPIClient {
 
         return try JSONDecoder().decode(DragonBooksResponse.self, from: data)
     }
+
+    func fetchMovies(limit: Int = 20) async throws -> DragonMoviesResponse {
+        guard let url = endpointURL(path: "/api/v1/movies?limit=\(limit)") else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw DragonAPIError.httpStatus(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(DragonMoviesResponse.self, from: data)
+    }
 }
 
 enum DragonAPIError: LocalizedError {
@@ -1076,6 +1294,81 @@ struct DragonBook: Decodable, Identifiable {
     let status: String
     let score: String
     let excerpt: String
+}
+
+struct DragonMoviesResponse: Decodable {
+    let api_version: String
+    let ok: Bool
+    let items: [DragonMovie]
+    let count: Int
+}
+
+struct DragonMovie: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let year: String
+    let poster: String
+    let status: String
+    let score: String
+    let type: String
+    let overview: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case year
+        case poster
+        case status
+        case score
+        case type
+        case overview
+    }
+
+    init(id: String, title: String, year: String, poster: String, status: String, score: String, type: String, overview: String) {
+        self.id = id
+        self.title = title
+        self.year = year
+        self.poster = poster
+        self.status = status
+        self.score = score
+        self.type = type
+        self.overview = overview
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = DragonMovie.decodeString(container, forKey: .id)
+        self.title = DragonMovie.decodeString(container, forKey: .title)
+        self.year = DragonMovie.decodeString(container, forKey: .year)
+        self.poster = DragonMovie.decodeString(container, forKey: .poster)
+        self.status = DragonMovie.decodeString(container, forKey: .status)
+        self.score = DragonMovie.decodeString(container, forKey: .score)
+        self.type = DragonMovie.decodeString(container, forKey: .type)
+        self.overview = DragonMovie.decodeString(container, forKey: .overview)
+    }
+
+    private static func decodeString(_ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String {
+        if let value = try? container.decode(String.self, forKey: key) {
+            return value
+        }
+
+        if let value = try? container.decode(Int.self, forKey: key) {
+            return String(value)
+        }
+
+        if let value = try? container.decode(Double.self, forKey: key) {
+            if value.rounded(.towardZero) == value {
+                return String(Int(value))
+            }
+            return String(value)
+        }
+
+        if let value = try? container.decode(Bool.self, forKey: key) {
+            return value ? "true" : "false"
+        }
+
+        return ""
+    }
 }
 
 // MARK: - Theme
