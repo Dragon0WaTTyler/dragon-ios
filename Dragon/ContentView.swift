@@ -1319,6 +1319,17 @@ struct DragonYouTubeSectionsStateCard: View {
 
 struct DragonYouTubeSectionDetailView: View {
     let section: DragonYouTubeSection
+    @StateObject private var viewModel: DragonYouTubeVideosViewModel
+
+    init(section: DragonYouTubeSection) {
+        self.section = section
+        _viewModel = StateObject(wrappedValue: DragonYouTubeVideosViewModel(sectionKey: section.key))
+    }
+
+    init(section: DragonYouTubeSection, viewModel: DragonYouTubeVideosViewModel) {
+        self.section = section
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
 
     var body: some View {
         ZStack {
@@ -1326,13 +1337,65 @@ struct DragonYouTubeSectionDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(section.label.isEmpty ? "Untitled section" : section.label)
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(.white)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(section.label.isEmpty ? "Untitled section" : section.label)
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundStyle(.white)
 
-                    InfoBlock(title: "Key", value: section.key.isEmpty ? "Unavailable" : section.key)
-                    InfoBlock(title: "Count", value: "\(section.count)")
-                    InfoBlock(title: "Note", value: "Videos will be added later.")
+                            if !section.key.isEmpty {
+                                Text(section.key)
+                                    .font(.headline)
+                                    .foregroundStyle(DragonTheme.red)
+                            }
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await viewModel.loadVideos()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    switch viewModel.state {
+                    case .idle, .loading where viewModel.videos.isEmpty:
+                        DragonYouTubeVideosLoadingView()
+
+                    case .failed(let message):
+                        DragonYouTubeVideosStateCard(
+                            title: "Could not load videos",
+                            message: message,
+                            buttonTitle: "Try Again"
+                        ) {
+                            await viewModel.loadVideos()
+                        }
+
+                    case .empty:
+                        DragonYouTubeVideosStateCard(
+                            title: "No videos yet",
+                            message: "This section is connected, but there are no videos available right now.",
+                            buttonTitle: "Reload"
+                        ) {
+                            await viewModel.loadVideos()
+                        }
+
+                    case .loaded, .loading:
+                        LazyVStack(spacing: 12) {
+                            ForEach(viewModel.videos) { video in
+                                YouTubeVideoRow(video: video)
+                                    .padding(.vertical, 4)
+                            }
+                        }
+                    }
                 }
                 .padding(24)
                 .padding(.bottom, 90)
@@ -1340,6 +1403,70 @@ struct DragonYouTubeSectionDetailView: View {
         }
         .navigationTitle("Section")
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            await viewModel.loadVideos()
+        }
+        .task {
+            if case .idle = viewModel.state {
+                await viewModel.loadVideos()
+            }
+        }
+    }
+}
+
+struct DragonYouTubeVideosLoadingView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading videos...")
+                .foregroundStyle(.gray)
+                .font(.footnote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct DragonYouTubeVideosStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
 
@@ -1350,6 +1477,19 @@ struct DragonYouTubeSectionDetailView: View {
             initialResponse: .preview
         )
     )
+}
+
+#Preview("YouTube Videos") {
+    NavigationStack {
+        DragonYouTubeSectionDetailView(
+            section: DragonYouTubeSection(key: "tech", label: "tech", count: 200),
+            viewModel: DragonYouTubeVideosViewModel(
+                sectionKey: "tech",
+                initialState: .loaded,
+                initialResponse: .preview
+            )
+        )
+    }
 }
 
 struct DragonYouTubeLegacyView: View {

@@ -452,12 +452,72 @@ struct DragonMovie: Decodable, Identifiable {
     }
 }
 
-struct DragonYouTubeResponse: Decodable {
+struct DragonYouTubeVideosResponse: Decodable {
     let api_version: String
     let ok: Bool
+    let section: String
     let items: [DragonYouTubeVideo]
     let count: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case section
+        case items
+        case count
+    }
+
+    init(api_version: String, ok: Bool, section: String, items: [DragonYouTubeVideo], count: Int) {
+        self.api_version = api_version
+        self.ok = ok
+        self.section = section
+        self.items = items
+        self.count = count
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.section = DragonYouTubeVideosResponse.decodeString(container, keys: [.section])
+        self.items = try container.decodeIfPresent([DragonYouTubeVideo].self, forKey: .items) ?? []
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? items.count
+    }
+
+    private static func decodeString(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys],
+        default defaultValue: String = ""
+    ) -> String {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                if value.rounded(.towardZero) == value {
+                    return String(Int(value))
+                }
+                return String(value)
+            }
+
+            if let value = try? container.decode(Bool.self, forKey: key) {
+                return value ? "true" : "false"
+            }
+        }
+
+        return defaultValue
+    }
 }
+
+typealias DragonYouTubeResponse = DragonYouTubeVideosResponse
 
 struct DragonYouTubeSectionsResponse: Decodable {
     let api_version: String

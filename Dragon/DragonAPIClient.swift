@@ -159,6 +159,29 @@ final class DragonAPIClient {
         return try JSONDecoder().decode(DragonYouTubeResponse.self, from: data)
     }
 
+    func fetchYouTubeVideos(section: String, limit: Int = 50) async throws -> DragonYouTubeVideosResponse {
+        let queryItems = [
+            URLQueryItem(name: "section", value: section),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+
+        guard let url = endpointURL(path: "/api/v1/youtube/videos", queryItems: queryItems) else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let (data, response) = try await session.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw DragonAPIError.httpStatus(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(DragonYouTubeVideosResponse.self, from: data)
+    }
+
     func fetchYouTubeSections() async throws -> DragonYouTubeSectionsResponse {
         guard let url = endpointURL(path: "/api/v1/youtube/sections") else {
             throw DragonAPIError.invalidURL
