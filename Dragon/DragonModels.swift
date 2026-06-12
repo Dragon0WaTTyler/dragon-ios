@@ -463,6 +463,25 @@ struct DragonYouTubeSectionsResponse: Decodable {
     let api_version: String
     let ok: Bool
     let sections: [DragonYouTubeSection]
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case sections
+    }
+
+    init(api_version: String, ok: Bool, sections: [DragonYouTubeSection]) {
+        self.api_version = api_version
+        self.ok = ok
+        self.sections = sections
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.sections = try container.decodeIfPresent([DragonYouTubeSection].self, forKey: .sections) ?? []
+    }
 }
 
 struct DragonYouTubeSection: Decodable, Identifiable {
@@ -470,8 +489,79 @@ struct DragonYouTubeSection: Decodable, Identifiable {
     let label: String
     let count: Int
 
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case label
+        case count
+    }
+
+    init(key: String, label: String, count: Int) {
+        self.key = key
+        self.label = label
+        self.count = count
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.key = DragonYouTubeSection.decodeString(container, keys: [.key], default: "unknown")
+        self.label = DragonYouTubeSection.decodeString(container, keys: [.label], default: key.isEmpty ? "Unknown section" : key)
+        self.count = DragonYouTubeSection.decodeInt(container, keys: [.count])
+    }
+
     var id: String {
-        key
+        key.isEmpty ? label : key
+    }
+
+    private static func decodeString(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys],
+        default defaultValue: String = ""
+    ) -> String {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                if value.rounded(.towardZero) == value {
+                    return String(Int(value))
+                }
+                return String(value)
+            }
+        }
+
+        return defaultValue
+    }
+
+    private static func decodeInt(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> Int {
+        for key in keys {
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return value
+            }
+
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let parsed = Int(trimmed) {
+                    return parsed
+                }
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                return Int(value.rounded())
+            }
+        }
+
+        return 0
     }
 }
 
