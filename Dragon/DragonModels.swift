@@ -7,17 +7,80 @@ struct DragonHealthResponse: Decodable {
 }
 
 struct DragonHomeResponse: Decodable {
+    let app_name: String
     let api_version: String
     let ok: Bool
+    let server_time: String
     let sections: [DragonSection]
     let service: String
+
+    private enum CodingKeys: String, CodingKey {
+        case app_name
+        case api_version
+        case ok
+        case server_time
+        case sections
+        case service
+    }
+
+    init(app_name: String, api_version: String, ok: Bool, server_time: String, sections: [DragonSection], service: String) {
+        self.app_name = app_name
+        self.api_version = api_version
+        self.ok = ok
+        self.server_time = server_time
+        self.sections = sections
+        self.service = service
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.app_name = try container.decodeIfPresent(String.self, forKey: .app_name) ?? "Dragon"
+        self.api_version = try container.decode(String.self, forKey: .api_version)
+        self.ok = try container.decode(Bool.self, forKey: .ok)
+        self.server_time = try container.decodeIfPresent(String.self, forKey: .server_time) ?? ""
+        self.sections = try container.decode([DragonSection].self, forKey: .sections)
+        self.service = try container.decode(String.self, forKey: .service)
+    }
 }
 
 struct DragonSection: Decodable, Identifiable {
+    let api_path: String
     let key: String
     let label: String
     let status: String
     let count: Int?
+    let href: String
+
+    private enum CodingKeys: String, CodingKey {
+        case api_path
+        case key
+        case label
+        case status
+        case count
+        case href
+    }
+
+    init(api_path: String, key: String, label: String, status: String, count: Int?, href: String) {
+        self.api_path = api_path
+        self.key = key
+        self.label = label
+        self.status = status
+        self.count = count
+        self.href = href
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.key = try container.decode(String.self, forKey: .key)
+        self.label = try container.decode(String.self, forKey: .label)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count)
+        let decodedHref = try container.decodeIfPresent(String.self, forKey: .href)
+        let decodedAPIPath = try container.decodeIfPresent(String.self, forKey: .api_path)
+        let fallbackPath = "/api/v1/\(key)"
+        self.href = decodedHref ?? decodedAPIPath ?? fallbackPath
+        self.api_path = decodedAPIPath ?? decodedHref ?? fallbackPath
+    }
 
     var id: String {
         key
@@ -30,6 +93,10 @@ struct DragonSection: Decodable, Identifiable {
 
         return String(count)
     }
+
+    var statusDisplayText: String {
+        status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
 }
 
 struct DragonArticlesResponse: Decodable {
@@ -37,6 +104,31 @@ struct DragonArticlesResponse: Decodable {
     let ok: Bool
     let items: [DragonArticle]
     let count: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case items
+        case count
+        case total
+    }
+
+    init(api_version: String, ok: Bool, items: [DragonArticle], count: Int) {
+        self.api_version = api_version
+        self.ok = ok
+        self.items = items
+        self.count = count
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.items = try container.decodeIfPresent([DragonArticle].self, forKey: .items) ?? []
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count)
+            ?? container.decodeIfPresent(Int.self, forKey: .total)
+            ?? items.count
+    }
 }
 
 struct DragonArticle: Decodable, Identifiable {
@@ -47,6 +139,90 @@ struct DragonArticle: Decodable, Identifiable {
     let published_at: String
     let saved_at: String
     let excerpt: String
+    let status: String
+    let read_state: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case source
+        case source_name
+        case url
+        case published_at
+        case saved_at
+        case excerpt
+        case summary
+        case description
+        case status
+        case read_state
+    }
+
+    init(
+        id: String,
+        title: String,
+        source: String,
+        url: String,
+        published_at: String,
+        saved_at: String,
+        excerpt: String,
+        status: String = "",
+        read_state: String = ""
+    ) {
+        self.id = id
+        self.title = title
+        self.source = source
+        self.url = url
+        self.published_at = published_at
+        self.saved_at = saved_at
+        self.excerpt = excerpt
+        self.status = status
+        self.read_state = read_state
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = DragonArticle.decodeString(container, forKeys: [.id])
+        self.title = DragonArticle.decodeString(container, forKeys: [.title], default: "Untitled article")
+        self.source = DragonArticle.decodeString(container, forKeys: [.source, .source_name])
+        self.url = DragonArticle.decodeString(container, forKeys: [.url])
+        self.published_at = DragonArticle.decodeString(container, forKeys: [.published_at])
+        self.saved_at = DragonArticle.decodeString(container, forKeys: [.saved_at])
+        self.excerpt = DragonArticle.decodeString(container, forKeys: [.excerpt, .summary, .description])
+        self.status = DragonArticle.decodeString(container, forKeys: [.status])
+        self.read_state = DragonArticle.decodeString(container, forKeys: [.read_state])
+    }
+
+    private static func decodeString(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKeys keys: [CodingKeys],
+        default defaultValue: String = ""
+    ) -> String {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                if value.rounded(.towardZero) == value {
+                    return String(Int(value))
+                }
+                return String(value)
+            }
+
+            if let value = try? container.decode(Bool.self, forKey: key) {
+                return value ? "true" : "false"
+            }
+        }
+
+        return defaultValue
+    }
 }
 
 struct DragonBooksResponse: Decodable {

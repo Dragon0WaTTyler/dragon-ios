@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 
 // MARK: - App Root
@@ -43,10 +44,141 @@ struct ContentView: View {
 
 // MARK: - Home
 
+@MainActor
+final class HomeViewModel: ObservableObject {
+    enum State {
+        case idle
+        case loading
+        case loaded
+        case failed(String)
+    }
+
+    @Published private(set) var state: State
+    @Published private(set) var response: DragonHomeResponse?
+
+    private let client: DragonHomeFetching
+
+    init(
+        client: DragonHomeFetching = DragonAPIClient.shared,
+        initialState: State = .idle,
+        initialResponse: DragonHomeResponse? = nil
+    ) {
+        self.client = client
+        self.state = initialState
+        self.response = initialResponse
+    }
+
+    var sections: [DragonSection] {
+        response?.sections ?? []
+    }
+
+    var appName: String {
+        response?.app_name ?? "Dragon"
+    }
+
+    var serverTimeText: String {
+        guard let serverTime = response?.server_time, !serverTime.isEmpty else {
+            return "Waiting for backend"
+        }
+
+        return "Server time \(serverTime)"
+    }
+
+    var errorText: String {
+        if case .failed(let message) = state {
+            return message
+        }
+        return ""
+    }
+
+    var isLoading: Bool {
+        if case .loading = state {
+            return true
+        }
+        return false
+    }
+
+    func loadHome() async {
+        state = .loading
+
+        do {
+            let response = try await client.fetchHome()
+            guard response.ok else {
+                state = .failed("Dragon API responded but ok=false")
+                return
+            }
+
+            self.response = response
+            state = .loaded
+        } catch {
+            state = .failed("Could not load /api/v1/home: \(error.localizedDescription)")
+        }
+    }
+}
+
+private extension DragonHomeResponse {
+    static let preview = DragonHomeResponse(
+        app_name: "Dragon",
+        api_version: "v1",
+        ok: true,
+        server_time: "2026-06-12T12:00:00Z",
+        sections: [
+            DragonSection(
+                api_path: "/api/v1/movies",
+                key: "movies",
+                label: "Movies",
+                status: "available",
+                count: 4,
+                href: "/api/v1/movies"
+            ),
+            DragonSection(
+                api_path: "/api/v1/youtube/sections",
+                key: "youtube",
+                label: "YouTube",
+                status: "available",
+                count: 3,
+                href: "/api/v1/youtube/sections"
+            ),
+            DragonSection(
+                api_path: "/api/v1/articles",
+                key: "articles",
+                label: "Articles",
+                status: "available",
+                count: 2,
+                href: "/api/v1/articles"
+            ),
+            DragonSection(
+                api_path: "/api/v1/books",
+                key: "books",
+                label: "Books",
+                status: "unknown",
+                count: nil,
+                href: "/api/v1/books"
+            ),
+            DragonSection(
+                api_path: "/api/v1/chess/home",
+                key: "chess",
+                label: "Chess",
+                status: "available",
+                count: 1,
+                href: "/api/v1/chess/home"
+            ),
+        ],
+        service: "dragon"
+    )
+}
+
 struct DragonHomeView: View {
-    @State private var sections: [DragonSection] = []
-    @State private var isLoading = false
-    @State private var errorText = ""
+    @StateObject private var viewModel: HomeViewModel
+
+    @MainActor
+    init() {
+        _viewModel = StateObject(wrappedValue: HomeViewModel())
+    }
+
+    init(viewModel: HomeViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
 
     var body: some View {
         ZStack {
@@ -56,12 +188,16 @@ struct DragonHomeView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Dragon")
+                            Text(viewModel.appName)
                                 .font(.system(size: 42, weight: .bold))
                                 .foregroundStyle(.white)
 
-                            Text("Personal Knowledge & Media OS")
+                            Text("Native home from /api/v1/home")
                                 .font(.headline)
+                                .foregroundStyle(.gray)
+
+                            Text(viewModel.serverTimeText)
+                                .font(.caption)
                                 .foregroundStyle(.gray)
                         }
 
@@ -69,7 +205,7 @@ struct DragonHomeView: View {
 
                         Button {
                             Task {
-                                await loadHome()
+                                await viewModel.loadHome()
                             }
                         } label: {
                             Image(systemName: "arrow.clockwise")
@@ -81,7 +217,7 @@ struct DragonHomeView: View {
                         }
                     }
 
-                    if isLoading && sections.isEmpty {
+                    if viewModel.isLoading && viewModel.sections.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             ProgressView()
                                 .tint(DragonTheme.red)
@@ -92,8 +228,8 @@ struct DragonHomeView: View {
                         }
                     }
 
-                    if !errorText.isEmpty {
-                        Text(errorText)
+                    if !viewModel.errorText.isEmpty {
+                        Text(viewModel.errorText)
                             .font(.footnote)
                             .foregroundStyle(DragonTheme.red)
                             .padding(12)
@@ -103,18 +239,20 @@ struct DragonHomeView: View {
                     }
 
                     VStack(spacing: 12) {
-                        if sections.isEmpty && !isLoading {
+                        if viewModel.sections.isEmpty && !viewModel.isLoading {
                             HomeCard(
                                 title: "No data yet",
                                 subtitle: "Tap refresh to load Dragon API",
-                                value: "—"
+                                value: "—",
+                                detail: nil
                             )
                         } else {
-                            ForEach(sections) { section in
+                            ForEach(viewModel.sections) { section in
                                 HomeCard(
                                     title: section.label,
-                                    subtitle: section.status == "available" ? "Available in Dragon" : "Status unknown",
-                                    value: section.displayCount
+                                    subtitle: "Status: \(section.statusDisplayText)",
+                                    value: section.displayCount,
+                                    detail: section.api_path
                                 )
                             }
                         }
@@ -125,37 +263,25 @@ struct DragonHomeView: View {
             }
         }
         .task {
-            await loadHome()
-        }
-    }
-
-    @MainActor
-    private func loadHome() async {
-        isLoading = true
-        errorText = ""
-
-        do {
-            let response = try await DragonAPIClient.shared.fetchHome()
-
-            if response.ok {
-                sections = response.sections
-            } else {
-                errorText = "Dragon API responded but ok=false"
+            if case .idle = viewModel.state {
+                await viewModel.loadHome()
             }
-        } catch {
-            errorText = "Could not load /api/v1/home: \(error.localizedDescription)"
         }
-
-        isLoading = false
     }
 }
 
 // MARK: - Articles
 
 struct DragonArticlesView: View {
-    @State private var articles: [DragonArticle] = []
-    @State private var isLoading = false
-    @State private var errorText = ""
+    @StateObject private var viewModel: ArticlesViewModel
+
+    init() {
+        _viewModel = StateObject(wrappedValue: ArticlesViewModel())
+    }
+
+    init(viewModel: ArticlesViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
 
     var body: some View {
         NavigationStack {
@@ -179,7 +305,7 @@ struct DragonArticlesView: View {
 
                             Button {
                                 Task {
-                                    await loadArticles()
+                                    await viewModel.loadArticles()
                                 }
                             } label: {
                                 Image(systemName: "arrow.clockwise")
@@ -191,35 +317,38 @@ struct DragonArticlesView: View {
                             }
                         }
 
-                        if isLoading && articles.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ProgressView()
-                                    .tint(DragonTheme.red)
+                        switch viewModel.state {
+                        case .idle, .loading where viewModel.articles.isEmpty:
+                            ArticleProgressView()
 
-                                Text("Loading articles...")
-                                    .foregroundStyle(.gray)
-                                    .font(.footnote)
+                        case .failed(let message):
+                            ArticleStateCard(
+                                title: "Could not load articles",
+                                message: message,
+                                buttonTitle: "Try Again"
+                            ) {
+                                await viewModel.loadArticles()
                             }
-                        }
 
-                        if !errorText.isEmpty {
-                            Text(errorText)
-                                .font(.footnote)
-                                .foregroundStyle(DragonTheme.red)
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(DragonTheme.card)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                        }
+                        case .empty:
+                            ArticleStateCard(
+                                title: "No articles yet",
+                                message: "The backend responded successfully, but there are no articles to show right now.",
+                                buttonTitle: "Reload"
+                            ) {
+                                await viewModel.loadArticles()
+                            }
 
-                        LazyVStack(spacing: 12) {
-                            ForEach(articles) { article in
-                                NavigationLink {
-                                    ArticleDetailView(article: article)
-                                } label: {
-                                    ArticleRow(article: article)
+                        case .loaded, .loading:
+                            LazyVStack(spacing: 12) {
+                                ForEach(viewModel.articles) { article in
+                                    NavigationLink {
+                                        ArticleDetailView(article: article)
+                                    } label: {
+                                        ArticleRow(article: article)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -228,29 +357,14 @@ struct DragonArticlesView: View {
                 }
             }
         }
+        .refreshable {
+            await viewModel.loadArticles()
+        }
         .task {
-            await loadArticles()
-        }
-    }
-
-    @MainActor
-    private func loadArticles() async {
-        isLoading = true
-        errorText = ""
-
-        do {
-            let response = try await DragonAPIClient.shared.fetchArticles(limit: 20)
-
-            if response.ok {
-                articles = response.items
-            } else {
-                errorText = "Dragon API responded but ok=false"
+            if case .idle = viewModel.state {
+                await viewModel.loadArticles()
             }
-        } catch {
-            errorText = "Could not load /api/v1/articles: \(error.localizedDescription)"
         }
-
-        isLoading = false
     }
 }
 
@@ -272,8 +386,8 @@ struct ArticleRow: View {
                         .lineLimit(1)
                 }
 
-                if !article.published_at.isEmpty {
-                    Text(article.published_at)
+                if let publishedDateText = article.publishedDisplayText {
+                    Text(publishedDateText)
                         .font(.caption)
                         .foregroundStyle(.gray)
                         .lineLimit(1)
@@ -284,7 +398,7 @@ struct ArticleRow: View {
                 Text(article.excerpt)
                     .font(.subheadline)
                     .foregroundStyle(.gray)
-                    .lineLimit(3)
+                    .lineLimit(2)
             }
         }
         .padding(16)
@@ -294,6 +408,62 @@ struct ArticleRow: View {
             RoundedRectangle(cornerRadius: 18)
                 .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct ArticleProgressView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading articles...")
+                .foregroundStyle(.gray)
+                .font(.footnote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct ArticleStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
         .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
@@ -334,12 +504,12 @@ struct ArticleDetailView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        if !article.published_at.isEmpty {
+                        if let publishedDateText = article.publishedDisplayText {
                             Text("Published")
                                 .font(.caption)
                                 .foregroundStyle(.gray)
 
-                            Text(article.published_at)
+                            Text(publishedDateText)
                                 .font(.footnote.monospaced())
                                 .foregroundStyle(.white)
                         }
@@ -360,6 +530,18 @@ struct ArticleDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18))
 
                     VStack(alignment: .leading, spacing: 10) {
+                        if !article.status.isEmpty || !article.read_state.isEmpty {
+                            Text("State")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+
+                            Text([article.status, article.read_state]
+                                .filter { !$0.isEmpty }
+                                .joined(separator: " · "))
+                                .font(.footnote)
+                                .foregroundStyle(.white)
+                        }
+
                         Text("Excerpt")
                             .font(.caption)
                             .foregroundStyle(.gray)
@@ -418,6 +600,36 @@ struct ArticleDetailView: View {
         .navigationTitle("Article")
         .navigationBarTitleDisplayMode(.inline)
     }
+}
+
+private extension DragonArticle {
+    var publishedDisplayText: String? {
+        let rawValue = published_at.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawValue.isEmpty else {
+            return nil
+        }
+
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = parser.date(from: rawValue) {
+            return DragonArticle.displayFormatter.string(from: date)
+        }
+
+        parser.formatOptions = [.withInternetDateTime]
+        if let date = parser.date(from: rawValue) {
+            return DragonArticle.displayFormatter.string(from: date)
+        }
+
+        return rawValue
+    }
+
+    private static let displayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
 }
 
 // MARK: - Books
@@ -1319,6 +1531,7 @@ struct HomeCard: View {
     let title: String
     let subtitle: String
     let value: String
+    let detail: String?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -1330,6 +1543,12 @@ struct HomeCard: View {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.gray)
+
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(DragonTheme.red.opacity(0.9))
+                }
             }
 
             Spacer()
@@ -1385,7 +1604,7 @@ struct DragonSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.gray)
 
-                    TextField("http://127.0.0.1:5050", text: $backendURLDraft)
+                    TextField("http://127.0.0.1:5000", text: $backendURLDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                         .keyboardType(.URL)
@@ -1552,5 +1771,25 @@ struct DragonSettingsView: View {
     }
 }
 #Preview {
-    ContentView()
+    DragonHomeView(
+        viewModel: HomeViewModel(
+            initialState: .loaded,
+            initialResponse: .preview
+        )
+    )
+}
+
+#Preview("Articles") {
+    DragonArticlesView(
+        viewModel: ArticlesViewModel(
+            initialState: .loaded,
+            initialResponse: .preview
+        )
+    )
+}
+
+#Preview("Article Detail") {
+    NavigationStack {
+        ArticleDetailView(article: DragonArticlesResponse.preview.items[0])
+    }
 }

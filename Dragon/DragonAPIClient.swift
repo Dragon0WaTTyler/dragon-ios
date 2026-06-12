@@ -1,7 +1,15 @@
 import Foundation
 
 private let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
-private let dragonDefaultBackendBaseURL = "http://127.0.0.1:5050"
+private let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
+
+protocol DragonHomeFetching {
+    func fetchHome() async throws -> DragonHomeResponse
+}
+
+protocol DragonArticlesFetching {
+    func fetchArticles(limit: Int) async throws -> DragonArticlesResponse
+}
 
 func normalizeDragonBackendBaseURL(_ rawValue: String) -> String? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,11 +46,20 @@ func saveDragonBackendBaseURL(_ rawValue: String) -> String? {
 final class DragonAPIClient {
     static let shared = DragonAPIClient()
 
+    private let session: URLSession
+    private let baseURLProvider: () -> String
+
     var backendBaseURL: String {
-        currentDragonBackendBaseURL()
+        baseURLProvider()
     }
 
-    private init() {}
+    init(
+        session: URLSession = .shared,
+        baseURLProvider: @escaping () -> String = currentDragonBackendBaseURL
+    ) {
+        self.session = session
+        self.baseURLProvider = baseURLProvider
+    }
 
     private func endpointURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
         guard var components = URLComponents(string: backendBaseURL) else {
@@ -59,7 +76,7 @@ final class DragonAPIClient {
             throw DragonAPIError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonAPIError.invalidResponse
@@ -77,7 +94,7 @@ final class DragonAPIClient {
             throw DragonAPIError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonAPIError.invalidResponse
@@ -95,7 +112,7 @@ final class DragonAPIClient {
             throw DragonAPIError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonAPIError.invalidResponse
@@ -113,7 +130,7 @@ final class DragonAPIClient {
             throw DragonAPIError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonAPIError.invalidResponse
@@ -139,7 +156,7 @@ final class DragonAPIClient {
             throw DragonAPIError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonAPIError.invalidResponse
@@ -157,7 +174,7 @@ final class DragonAPIClient {
             throw DragonAPIError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonAPIError.invalidResponse
@@ -187,3 +204,5 @@ enum DragonAPIError: LocalizedError {
         }
     }
 }
+
+extension DragonAPIClient: DragonHomeFetching, DragonArticlesFetching {}
