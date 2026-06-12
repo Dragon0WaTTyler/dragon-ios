@@ -230,6 +230,31 @@ struct DragonBooksResponse: Decodable {
     let ok: Bool
     let items: [DragonBook]
     let count: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case items
+        case count
+        case total
+    }
+
+    init(api_version: String, ok: Bool, items: [DragonBook], count: Int) {
+        self.api_version = api_version
+        self.ok = ok
+        self.items = items
+        self.count = count
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.items = try container.decodeIfPresent([DragonBook].self, forKey: .items) ?? []
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count)
+            ?? container.decodeIfPresent(Int.self, forKey: .total)
+            ?? items.count
+    }
 }
 
 struct DragonBook: Decodable, Identifiable {
@@ -242,6 +267,114 @@ struct DragonBook: Decodable, Identifiable {
     let status: String
     let score: String
     let excerpt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case author
+        case authors
+        case cover
+        case cover_url
+        case status
+        case year
+        case score
+        case excerpt
+        case summary
+    }
+
+    init(
+        id: String,
+        title: String,
+        author: String,
+        authors: [String],
+        cover: String,
+        year: String,
+        status: String,
+        score: String,
+        excerpt: String
+    ) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.authors = authors
+        self.cover = cover
+        self.year = year
+        self.status = status
+        self.score = score
+        self.excerpt = excerpt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = DragonBook.decodeString(container, keys: [.id])
+        self.title = DragonBook.decodeString(container, keys: [.title], default: "Untitled book")
+        self.author = DragonBook.decodeString(container, keys: [.author])
+        self.authors = DragonBook.decodeStringArray(container, keys: [.authors])
+        self.cover = DragonBook.decodeString(container, keys: [.cover, .cover_url])
+        self.year = DragonBook.decodeString(container, keys: [.year])
+        self.status = DragonBook.decodeString(container, keys: [.status])
+        self.score = DragonBook.decodeString(container, keys: [.score])
+        self.excerpt = DragonBook.decodeString(container, keys: [.excerpt, .summary])
+    }
+
+    var idValue: String {
+        id
+    }
+
+    private static func decodeString(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys],
+        default defaultValue: String = ""
+    ) -> String {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                if value.rounded(.towardZero) == value {
+                    return String(Int(value))
+                }
+                return String(value)
+            }
+
+            if let value = try? container.decode(Bool.self, forKey: key) {
+                return value ? "true" : "false"
+            }
+        }
+
+        return defaultValue
+    }
+
+    private static func decodeStringArray(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> [String] {
+        for key in keys {
+            if let values = try? container.decode([String].self, forKey: key) {
+                let trimmed = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return [trimmed]
+                }
+            }
+        }
+
+        return []
+    }
 }
 
 struct DragonMoviesResponse: Decodable {
