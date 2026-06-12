@@ -1,7 +1,7 @@
 import Foundation
 
-private let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
-private let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
+let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
+let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
 
 protocol DragonHomeFetching {
     func fetchHome() async throws -> DragonHomeResponse
@@ -31,16 +31,6 @@ func normalizeDragonBackendBaseURL(_ rawValue: String) -> String? {
 func currentDragonBackendBaseURL() -> String {
     let storedValue = UserDefaults.standard.string(forKey: dragonBackendBaseURLDefaultsKey) ?? ""
     return normalizeDragonBackendBaseURL(storedValue) ?? dragonDefaultBackendBaseURL
-}
-
-@discardableResult
-func saveDragonBackendBaseURL(_ rawValue: String) -> String? {
-    guard let normalized = normalizeDragonBackendBaseURL(rawValue) else {
-        return nil
-    }
-
-    UserDefaults.standard.set(normalized, forKey: dragonBackendBaseURLDefaultsKey)
-    return normalized
 }
 
 final class DragonAPIClient {
@@ -185,6 +175,46 @@ final class DragonAPIClient {
         }
 
         return try JSONDecoder().decode(DragonYouTubeSectionsResponse.self, from: data)
+    }
+
+    func testBackendConnection() async -> Result<Void, DragonAPIError> {
+        do {
+            try await fetchHealth()
+            return .success(())
+        } catch {
+            return .failure(error as? DragonAPIError ?? .invalidResponse)
+        }
+    }
+
+    private func fetchHealth() async throws {
+        guard let url = endpointURL(path: "/api/v1/health") else {
+            throw DragonAPIError.invalidURL
+        }
+
+        if let response = try? await session.data(from: url).1, try isSuccessfulHTTPResponse(response) {
+            return
+        }
+
+        guard let fallbackURL = endpointURL(path: "/api/v1/home") else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let (_, fallbackResponse) = try await session.data(from: fallbackURL)
+        guard try isSuccessfulHTTPResponse(fallbackResponse) else {
+            throw DragonAPIError.invalidResponse
+        }
+    }
+
+    private func isSuccessfulHTTPResponse(_ response: URLResponse) throws -> Bool {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            return false
+        }
+
+        return true
     }
 }
 

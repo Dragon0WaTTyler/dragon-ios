@@ -1572,19 +1572,10 @@ struct HomeCard: View {
 // MARK: - Settings
 
 struct DragonSettingsView: View {
-    @State private var backendURLDraft = currentDragonBackendBaseURL()
-    @State private var statusText = "Not checked yet"
-    @State private var detailText = "No API response yet"
-    @State private var backendURLError = ""
+    @State private var backendURLDraft = DragonBackendSettingsStore().backendURL
+    @State private var connectionState: DragonBackendConnectionState = .notTested
     @State private var isChecking = false
-
-    private var backendBaseURL: String {
-        DragonAPIClient.shared.backendBaseURL
-    }
-
-    private var healthURL: String {
-        "\(backendBaseURL)/api/v1/health"
-    }
+    private let settingsStore = DragonBackendSettingsStore()
 
     var body: some View {
         ZStack {
@@ -1599,7 +1590,7 @@ struct DragonSettingsView: View {
                     .font(.headline)
                     .foregroundStyle(.gray)
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Backend URL")
                         .font(.caption)
                         .foregroundStyle(.gray)
@@ -1618,156 +1609,159 @@ struct DragonSettingsView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                    if !backendURLError.isEmpty {
-                        Text(backendURLError)
+                    Text(statusLabel)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(statusColor)
+
+                    if let detailText {
+                        Text(detailText)
                             .font(.caption)
-                            .foregroundStyle(DragonTheme.red)
+                            .foregroundStyle(.gray)
                     }
-
-                    Text("Health endpoint")
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-
-                    Text(healthURL)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.white)
-
-                    Text("Saved backend")
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-
-                    Text(backendBaseURL)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.white)
-
-                    Text(statusText)
-                        .font(.footnote)
-                        .foregroundStyle(statusText.contains("Online") ? .green : DragonTheme.red)
-
-                    Text(detailText)
-                        .font(.caption)
-                        .foregroundStyle(.gray)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DragonTheme.card)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
 
-                Button {
-                    saveBackendURL()
-                } label: {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text("Save Backend URL")
-                            .fontWeight(.semibold)
+                HStack(spacing: 12) {
+                    Button("Save") {
+                        saveBackendURL()
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(DragonTheme.card)
-                    .foregroundStyle(.white)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(DragonTheme.red, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
+                    .buttonStyle(DragonFilledButtonStyle())
 
-                Button {
-                    checkBackend()
-                } label: {
-                    HStack {
-                        if isChecking {
-                            ProgressView()
-                                .tint(.white)
+                    Button {
+                        checkBackend()
+                    } label: {
+                        HStack {
+                            if isChecking {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+
+                            Text(isChecking ? "Testing..." : "Test Connection")
                         }
-
-                        Text(isChecking ? "Checking..." : "Check Dragon API")
-                            .fontWeight(.semibold)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(DragonTheme.red)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .buttonStyle(DragonFilledButtonStyle())
+                    .disabled(isChecking)
                 }
-                .disabled(isChecking)
+
+                Button("Reset to Local") {
+                    resetBackendURL()
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
 
                 Spacer()
             }
             .padding(24)
             .task {
-                backendURLDraft = backendBaseURL
+                backendURLDraft = settingsStore.backendURL
             }
         }
     }
 
     private func saveBackendURL() {
-        guard let normalized = saveDragonBackendBaseURL(backendURLDraft) else {
-            backendURLError = "Enter a valid http:// or https:// URL"
+        guard let normalized = settingsStore.saveBackendURL(backendURLDraft) else {
+            connectionState = .invalidURL
             return
         }
 
-        backendURLError = ""
         backendURLDraft = normalized
-        statusText = "Saved"
-        detailText = "Backend URL updated"
+        connectionState = .notTested
+    }
+
+    private func resetBackendURL() {
+        backendURLDraft = settingsStore.resetToLocalBackendURL()
+        connectionState = .notTested
+    }
+
+    private var statusLabel: String {
+        switch connectionState {
+        case .notTested:
+            return "Not tested"
+        case .connected:
+            return "Connected"
+        case .failed:
+            return "Failed"
+        case .invalidURL:
+            return "Invalid URL"
+        }
+    }
+
+    private var statusColor: Color {
+        switch connectionState {
+        case .connected:
+            return .green
+        case .failed, .invalidURL:
+            return DragonTheme.red
+        case .notTested:
+            return .gray
+        }
+    }
+
+    private var detailText: String? {
+        switch connectionState {
+        case .notTested:
+            return "No API response yet"
+        case .connected:
+            return "Saved backend: \(settingsStore.backendURL)"
+        case .failed(let message):
+            return message
+        case .invalidURL:
+            return "Enter a valid http:// or https:// URL"
+        }
     }
 
     private func checkBackend() {
-        guard let url = URL(string: healthURL) else {
-            statusText = "Invalid backend URL"
-            detailText = healthURL
+        guard normalizeDragonBackendBaseURL(backendURLDraft) != nil else {
+            connectionState = .invalidURL
             return
         }
 
         isChecking = true
-        statusText = "Checking..."
-        detailText = "Calling \(healthURL)"
+        connectionState = .notTested
 
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            DispatchQueue.main.async {
-                isChecking = false
+        Task {
+            defer { isChecking = false }
 
-                if let error = error {
-                    statusText = "Offline"
-                    detailText = error.localizedDescription
-                    return
-                }
+            let normalizedDraft = normalizeDragonBackendBaseURL(backendURLDraft) ?? settingsStore.backendURL
+            let workingClient = DragonAPIClient(baseURLProvider: { normalizedDraft })
 
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    statusText = "Unknown response"
-                    detailText = "No HTTP response received"
-                    return
-                }
-
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    statusText = "API error: HTTP \(httpResponse.statusCode)"
-                    detailText = "Health endpoint returned a non-success status"
-                    return
-                }
-
-                guard let data = data else {
-                    statusText = "Online"
-                    detailText = "HTTP \(httpResponse.statusCode), empty body"
-                    return
-                }
-
-                do {
-                    let payload = try JSONDecoder().decode(DragonHealthResponse.self, from: data)
-
-                    if payload.ok {
-                        statusText = "Online: \(payload.service)"
-                        detailText = "API \(payload.api_version) · HTTP \(httpResponse.statusCode)"
-                    } else {
-                        statusText = "API responded but not OK"
-                        detailText = "HTTP \(httpResponse.statusCode)"
-                    }
-                } catch {
-                    statusText = "Online: HTTP \(httpResponse.statusCode)"
-                    detailText = "Response was not decoded as health JSON"
-                }
+            switch await workingClient.testBackendConnection() {
+            case .success:
+                connectionState = .connected
+            case .failure(let error):
+                connectionState = .failed(error.localizedDescription)
             }
-        }.resume()
+        }
+    }
+}
+
+private struct DragonFilledButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(DragonTheme.red.opacity(configuration.isPressed ? 0.8 : 1))
+            .foregroundStyle(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct DragonOutlineButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(DragonTheme.card)
+            .foregroundStyle(.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(DragonTheme.red.opacity(configuration.isPressed ? 0.6 : 1), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 #Preview {
