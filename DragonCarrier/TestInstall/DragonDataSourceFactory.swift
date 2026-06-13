@@ -5,7 +5,7 @@ enum DragonDataSourceFactory {
     static let useMockDataSource = false
     #endif
 
-    static let remoteDataSource: DragonDataSource = DragonRemoteDataSource.shared
+    static let remoteDataSource: DragonDataSource = DragonCachedDataSource(remote: DragonRemoteDataSource.shared)
     static let mockDataSource: DragonDataSource = MockDragonDataSource()
 
     static var defaultDataSource: DragonDataSource {

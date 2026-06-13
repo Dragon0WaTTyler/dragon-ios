@@ -6,7 +6,7 @@ struct DragonHealthResponse: Decodable {
     let service: String
 }
 
-struct DragonHomeResponse: Decodable {
+struct DragonHomeResponse: Codable {
     let app_name: String
     let api_version: String
     let ok: Bool
@@ -43,7 +43,7 @@ struct DragonHomeResponse: Decodable {
     }
 }
 
-struct DragonSection: Decodable, Identifiable {
+struct DragonSection: Codable, Identifiable {
     let api_path: String
     let key: String
     let label: String
@@ -99,7 +99,7 @@ struct DragonSection: Decodable, Identifiable {
     }
 }
 
-struct DragonArticlesResponse: Decodable {
+struct DragonArticlesResponse: Codable {
     let api_version: String
     let ok: Bool
     let items: [DragonArticle]
@@ -129,9 +129,17 @@ struct DragonArticlesResponse: Decodable {
             ?? container.decodeIfPresent(Int.self, forKey: .total)
             ?? items.count
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(api_version, forKey: .api_version)
+        try container.encode(ok, forKey: .ok)
+        try container.encode(items, forKey: .items)
+        try container.encode(count, forKey: .count)
+    }
 }
 
-struct DragonArticle: Decodable, Identifiable {
+struct DragonArticle: Codable, Identifiable {
     let id: String
     let title: String
     let source: String
@@ -192,6 +200,19 @@ struct DragonArticle: Decodable, Identifiable {
         self.read_state = DragonArticle.decodeString(container, forKeys: [.read_state])
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(source, forKey: .source)
+        try container.encode(url, forKey: .url)
+        try container.encode(published_at, forKey: .published_at)
+        try container.encode(saved_at, forKey: .saved_at)
+        try container.encode(excerpt, forKey: .excerpt)
+        try container.encode(status, forKey: .status)
+        try container.encode(read_state, forKey: .read_state)
+    }
+
     private static func decodeString(
         _ container: KeyedDecodingContainer<CodingKeys>,
         forKeys keys: [CodingKeys],
@@ -225,7 +246,7 @@ struct DragonArticle: Decodable, Identifiable {
     }
 }
 
-struct DragonBooksResponse: Decodable {
+struct DragonBooksResponse: Codable {
     let api_version: String
     let ok: Bool
     let items: [DragonBook]
@@ -290,7 +311,7 @@ struct DragonBooksResponse: Decodable {
     }
 }
 
-struct DragonBook: Decodable, Identifiable {
+struct DragonBook: Codable, Identifiable {
     let id: String
     let title: String
     let author: String
@@ -348,6 +369,19 @@ struct DragonBook: Decodable, Identifiable {
         self.status = DragonBook.decodeString(container, keys: [.status])
         self.score = DragonBook.decodeString(container, keys: [.score])
         self.excerpt = DragonBook.decodeString(container, keys: [.excerpt, .summary])
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(author, forKey: .author)
+        try container.encode(authors, forKey: .authors)
+        try container.encode(cover, forKey: .cover)
+        try container.encode(status, forKey: .status)
+        try container.encode(year, forKey: .year)
+        try container.encode(score, forKey: .score)
+        try container.encode(excerpt, forKey: .excerpt)
     }
 
     var idValue: String {
@@ -410,14 +444,14 @@ struct DragonBook: Decodable, Identifiable {
     }
 }
 
-struct DragonMoviesResponse: Decodable {
+struct DragonMoviesResponse: Codable {
     let api_version: String
     let ok: Bool
     let items: [DragonMovie]
     let count: Int
 }
 
-struct DragonMovie: Decodable, Identifiable {
+struct DragonMovie: Codable, Identifiable {
     let id: String
     let title: String
     let year: String
@@ -485,7 +519,7 @@ struct DragonMovie: Decodable, Identifiable {
     }
 }
 
-struct DragonYouTubeVideosResponse: Decodable {
+struct DragonYouTubeVideosResponse: Codable {
     let api_version: String
     let ok: Bool
     let section: String
@@ -587,7 +621,7 @@ struct DragonYouTubeVideosResponse: Decodable {
 
 typealias DragonYouTubeResponse = DragonYouTubeVideosResponse
 
-struct DragonYouTubeSectionsResponse: Decodable {
+struct DragonYouTubeSectionsResponse: Codable {
     let api_version: String
     let ok: Bool
     let sections: [DragonYouTubeSection]
@@ -612,7 +646,7 @@ struct DragonYouTubeSectionsResponse: Decodable {
     }
 }
 
-struct DragonYouTubeSection: Decodable, Identifiable {
+struct DragonYouTubeSection: Codable, Identifiable {
     let key: String
     let label: String
     let count: Int
@@ -693,7 +727,7 @@ struct DragonYouTubeSection: Decodable, Identifiable {
     }
 }
 
-struct DragonYouTubeVideo: Decodable, Identifiable {
+struct DragonYouTubeVideo: Codable, Identifiable {
     let id: String
     let video_id: String
     let title: String
@@ -761,6 +795,23 @@ struct DragonYouTubeVideo: Decodable, Identifiable {
         self.group = DragonYouTubeVideo.decodeString(container, keys: [.group])
         self.playlist = DragonYouTubeVideo.decodeString(container, keys: [.playlist, .playlist_title])
         self.source = DragonYouTubeVideo.decodeString(container, keys: [.source], default: "unknown")
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(video_id, forKey: .video_id)
+        try container.encode(title, forKey: .title)
+        try container.encode(channel, forKey: .channel)
+        try container.encode(thumbnail, forKey: .thumbnail)
+        try container.encode(url, forKey: .url)
+        try container.encode(published_at, forKey: .published_at)
+        try container.encode(saved_at, forKey: .saved_at)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(section, forKey: .section)
+        try container.encode(group, forKey: .group)
+        try container.encode(playlist, forKey: .playlist)
+        try container.encode(source, forKey: .source)
     }
 
     private static func decodeString(_ container: KeyedDecodingContainer<CodingKeys>, keys: [CodingKeys], default defaultValue: String = "") -> String {
