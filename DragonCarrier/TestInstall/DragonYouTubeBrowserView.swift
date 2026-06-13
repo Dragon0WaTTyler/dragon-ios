@@ -35,7 +35,12 @@ struct DragonYouTubeBrowserView: View {
     @State private var pendingVideoReset = false
     @State private var submittedSearchQuery = ""
 
+    private let dataSource: DragonDataSource
     private let limit = 50
+
+    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+        self.dataSource = dataSource
+    }
 
     var body: some View {
         NavigationStack {
@@ -332,7 +337,7 @@ struct DragonYouTubeBrowserView: View {
         let hadVisibleSections = !sections.isEmpty
 
         do {
-            let result = try await DragonAPIClient.shared.fetchYouTubeSections()
+            let result = try await dataSource.fetchYouTubeSections()
             let response = result.value
             guard response.ok else {
                 if hadVisibleSections {
@@ -389,14 +394,15 @@ struct DragonYouTubeBrowserView: View {
 
             switch selectedMode {
             case .watchLater:
-                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await dataSource.fetchYouTubeVideos(
                     source: "watchlater",
+                    section: nil,
                     limit: limit,
                     offset: offset,
                     query: activeQuery
                 )
             case .pocketTube:
-                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await dataSource.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
                     limit: limit,
@@ -455,14 +461,15 @@ struct DragonYouTubeBrowserView: View {
 
             switch selectedMode {
             case .watchLater:
-                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await dataSource.fetchYouTubeVideos(
                     source: "watchlater",
+                    section: nil,
                     limit: limit,
                     offset: offset,
                     query: normalizedActiveSearchQuery
                 )
             case .pocketTube:
-                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await dataSource.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
                     limit: limit,

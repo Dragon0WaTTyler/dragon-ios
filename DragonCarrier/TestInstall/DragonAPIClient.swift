@@ -3,14 +3,6 @@ import Foundation
 let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
 let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
 
-protocol DragonHomeFetching {
-    func fetchHome() async throws -> DragonAPIFetchResult<DragonHomeResponse>
-}
-
-protocol DragonArticlesFetching {
-    func fetchArticles(limit: Int) async throws -> DragonAPIFetchResult<DragonArticlesResponse>
-}
-
 func normalizeDragonBackendBaseURL(_ rawValue: String) -> String? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
@@ -320,4 +312,4 @@ func dragonUserFacingMessage(forHTTPStatus statusCode: Int) -> String {
     }
 }
 
-extension DragonAPIClient: DragonHomeFetching, DragonArticlesFetching {}
+extension DragonAPIClient: DragonDataSource {}

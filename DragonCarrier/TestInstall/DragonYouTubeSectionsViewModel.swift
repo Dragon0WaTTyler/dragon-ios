@@ -17,14 +17,14 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var statusText: String?
 
-    private let client: DragonAPIClient
+    private let dataSource: DragonDataSource
 
     init(
-        client: DragonAPIClient = .shared,
+        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
         initialState: State = .idle,
         initialResponse: DragonYouTubeSectionsResponse? = nil
     ) {
-        self.client = client
+        self.dataSource = dataSource
         self.state = initialState
         self.response = initialResponse
     }
@@ -44,7 +44,7 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
         state = .loading
 
         do {
-            let result = try await client.fetchYouTubeSections()
+            let result = try await dataSource.fetchYouTubeSections()
             let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")

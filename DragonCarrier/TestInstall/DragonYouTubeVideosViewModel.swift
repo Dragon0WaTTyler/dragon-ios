@@ -18,18 +18,18 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     @Published private(set) var isLoadingMore = false
     @Published private(set) var statusText: String?
 
-    private let client: DragonAPIClient
+    private let dataSource: DragonDataSource
     private let sectionKey: String
     private let limit: Int
 
     init(
         sectionKey: String,
         limit: Int = 50,
-        client: DragonAPIClient = .shared,
+        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
         initialState: State = .idle,
         initialResponse: DragonYouTubeVideosResponse? = nil
     ) {
-        self.client = client
+        self.dataSource = dataSource
         self.sectionKey = sectionKey
         self.limit = limit
         self.state = initialState
@@ -55,7 +55,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
         state = .loading
 
         do {
-            let result = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: 0)
+            let result = try await dataSource.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: 0)
             let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")
@@ -82,7 +82,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
 
         do {
             let nextOffset = response.next_offset ?? response.items.count
-            let nextPageResult = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: nextOffset)
+            let nextPageResult = try await dataSource.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: nextOffset)
             let nextPage = nextPageResult.value
             guard nextPage.ok else {
                 handleLoadMoreFailure("Backend returned an error.")

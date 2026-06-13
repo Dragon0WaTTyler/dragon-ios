@@ -8,6 +8,12 @@ struct DragonMoviesView: View {
     @State private var searchText = ""
     @State private var statusText: String?
 
+    private let dataSource: DragonDataSource
+
+    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+        self.dataSource = dataSource
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -114,7 +120,7 @@ struct DragonMoviesView: View {
         isLoading = true
 
         do {
-            let result = try await DragonAPIClient.shared.fetchMovies(limit: 20)
+            let result = try await dataSource.fetchMovies(limit: 20)
             let response = result.value
 
             if response.ok {

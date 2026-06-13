@@ -17,14 +17,14 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var statusText: String?
 
-    private let client: DragonHomeFetching
+    private let dataSource: DragonDataSource
 
     init(
-        client: DragonHomeFetching = DragonAPIClient.shared,
+        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
         initialState: State = .idle,
         initialResponse: DragonHomeResponse? = nil
     ) {
-        self.client = client
+        self.dataSource = dataSource
         self.state = initialState
         self.response = initialResponse
     }
@@ -66,7 +66,7 @@ final class HomeViewModel: ObservableObject {
         state = .loading
 
         do {
-            let result = try await client.fetchHome()
+            let result = try await dataSource.fetchHome()
             let response = result.value
             guard response.ok else {
                 refreshErrorText = "Backend returned an error."
@@ -144,8 +144,8 @@ struct DragonHomeView: View {
     @StateObject private var viewModel: HomeViewModel
 
     @MainActor
-    init() {
-        _viewModel = StateObject(wrappedValue: HomeViewModel())
+    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+        _viewModel = StateObject(wrappedValue: HomeViewModel(dataSource: dataSource))
     }
 
     init(viewModel: HomeViewModel) {

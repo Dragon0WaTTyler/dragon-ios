@@ -1,8 +1,14 @@
 import SwiftUI
 
 struct DragonYouTubeView: View {
+    private let dataSource: DragonDataSource
+
+    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+        self.dataSource = dataSource
+    }
+
     var body: some View {
-        DragonYouTubeBrowserView()
+        DragonYouTubeBrowserView(dataSource: dataSource)
     }
 }
 

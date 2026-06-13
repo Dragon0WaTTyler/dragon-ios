@@ -17,16 +17,16 @@ final class ArticlesViewModel: ObservableObject {
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var statusText: String?
 
-    private let client: DragonArticlesFetching
+    private let dataSource: DragonDataSource
     private let limit: Int
 
     init(
-        client: DragonArticlesFetching = DragonAPIClient.shared,
+        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
         limit: Int = 20,
         initialState: State = .idle,
         initialResponse: DragonArticlesResponse? = nil
     ) {
-        self.client = client
+        self.dataSource = dataSource
         self.limit = limit
         self.state = initialState
         self.response = initialResponse
@@ -47,7 +47,7 @@ final class ArticlesViewModel: ObservableObject {
         state = .loading
 
         do {
-            let result = try await client.fetchArticles(limit: limit)
+            let result = try await dataSource.fetchArticles(limit: limit)
             let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")

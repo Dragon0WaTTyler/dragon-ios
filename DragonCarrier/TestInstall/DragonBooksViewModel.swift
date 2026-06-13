@@ -19,17 +19,17 @@ final class DragonBooksViewModel: ObservableObject {
     @Published private(set) var searchQuery = ""
     @Published private(set) var statusText: String?
 
-    private let client: DragonAPIClient
+    private let dataSource: DragonDataSource
     private let limit: Int
     private var requestGeneration = 0
 
     init(
-        client: DragonAPIClient = .shared,
+        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
         limit: Int = 50,
         initialState: State = .idle,
         initialResponse: DragonBooksResponse? = nil
     ) {
-        self.client = client
+        self.dataSource = dataSource
         self.limit = limit
         self.state = initialState
         self.response = initialResponse
@@ -70,7 +70,7 @@ final class DragonBooksViewModel: ObservableObject {
         state = .loading
 
         do {
-            let result = try await client.fetchBooks(limit: limit, offset: 0, query: searchQuery)
+            let result = try await dataSource.fetchBooks(limit: limit, offset: 0, query: searchQuery)
             guard requestID == requestGeneration else {
                 return
             }
@@ -103,7 +103,7 @@ final class DragonBooksViewModel: ObservableObject {
 
         do {
             let nextOffset = response.next_offset ?? response.items.count
-            let nextPageResult = try await client.fetchBooks(limit: limit, offset: nextOffset, query: searchQuery)
+            let nextPageResult = try await dataSource.fetchBooks(limit: limit, offset: nextOffset, query: searchQuery)
             let nextPage = nextPageResult.value
             guard nextPage.ok else {
                 handleLoadMoreFailure("Backend returned an error.")
