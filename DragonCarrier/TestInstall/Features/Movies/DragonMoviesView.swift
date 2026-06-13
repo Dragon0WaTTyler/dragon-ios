@@ -5,6 +5,7 @@ struct DragonMoviesView: View {
     @State private var isLoading = false
     @State private var errorText = ""
     @State private var lastUpdatedAt: Date?
+    @State private var searchText = ""
 
     var body: some View {
         NavigationStack {
@@ -59,16 +60,6 @@ struct DragonMoviesView: View {
                             }
                         }
 
-                        if movies.isEmpty && !isLoading && errorText.isEmpty {
-                            MoviesStateCard(
-                                title: "No movies found.",
-                                message: "Pull to refresh to check again.",
-                                buttonTitle: "Reload"
-                            ) {
-                                await loadMovies()
-                            }
-                        }
-
                         if !errorText.isEmpty && movies.isEmpty {
                             MoviesStateCard(
                                 title: "Could not load movies",
@@ -77,16 +68,28 @@ struct DragonMoviesView: View {
                             ) {
                                 await loadMovies()
                             }
-                        }
-
-                        LazyVStack(spacing: 12) {
-                            ForEach(movies) { movie in
-                                NavigationLink {
-                                    MovieDetailView(movie: movie)
-                                } label: {
-                                    MovieRow(movie: movie)
+                        } else if filteredMovies.isEmpty {
+                            if movies.isEmpty {
+                                MoviesStateCard(
+                                    title: "No movies found.",
+                                    message: "Pull to refresh to check again.",
+                                    buttonTitle: "Reload"
+                                ) {
+                                    await loadMovies()
                                 }
-                                .buttonStyle(.plain)
+                            } else {
+                                NoMatchesView()
+                            }
+                        } else {
+                            LazyVStack(spacing: 12) {
+                                ForEach(filteredMovies) { movie in
+                                    NavigationLink {
+                                        MovieDetailView(movie: movie)
+                                    } label: {
+                                        MovieRow(movie: movie)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                         }
                     }
@@ -95,6 +98,7 @@ struct DragonMoviesView: View {
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search movies")
         .refreshable {
             await loadMovies()
         }
@@ -126,6 +130,30 @@ struct DragonMoviesView: View {
 
     private func handleFailure(_ message: String) {
         errorText = message
+    }
+
+    private var filteredMovies: [DragonMovie] {
+        let query = normalizedSearchText(searchText)
+        guard !query.isEmpty else {
+            return movies
+        }
+
+        return movies.filter { movie in
+            [
+                movie.title,
+                movie.year,
+                movie.status,
+                movie.score,
+                movie.type,
+                movie.overview
+            ].contains { normalizedSearchText($0).contains(query) }
+        }
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 }
 

@@ -17,6 +17,7 @@ struct DragonYouTubeBrowserView: View {
 
     @State private var selectedMode: Mode = .watchLater
     @State private var selectedPocketTubeSectionKey: String?
+    @State private var searchText = ""
     @State private var videos: [DragonYouTubeVideo] = []
     @State private var sections: [DragonYouTubeSection] = []
     @State private var isLoadingVideos = false
@@ -68,6 +69,7 @@ struct DragonYouTubeBrowserView: View {
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search videos")
         .refreshable {
             await refreshCurrentMode(forceSectionsReload: selectedMode == .pocketTube)
         }
@@ -163,9 +165,11 @@ struct DragonYouTubeBrowserView: View {
             ) {
                 await refreshCurrentMode(forceSectionsReload: selectedMode == .pocketTube)
             }
+        } else if filteredVideos.isEmpty {
+            NoMatchesView()
         } else {
             LazyVStack(spacing: 12) {
-                ForEach(videos) { video in
+                ForEach(filteredVideos) { video in
                     NavigationLink {
                         YouTubeWatchView(video: video, videos: videos)
                     } label: {
@@ -238,6 +242,23 @@ struct DragonYouTubeBrowserView: View {
         }
 
         return "Pull to refresh to check again."
+    }
+
+    private var filteredVideos: [DragonYouTubeVideo] {
+        let query = normalizedSearchText(searchText)
+        guard !query.isEmpty else {
+            return videos
+        }
+
+        return videos.filter { video in
+            [
+                video.title,
+                video.channel,
+                video.section,
+                video.group,
+                video.playlist
+            ].contains { normalizedSearchText($0).contains(query) }
+        }
     }
 
     @MainActor
@@ -350,6 +371,12 @@ struct DragonYouTubeBrowserView: View {
     }
 
     private func normalizedSectionKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()

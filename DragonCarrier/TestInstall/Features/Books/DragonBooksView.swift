@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DragonBooksView: View {
     @StateObject private var viewModel: DragonBooksViewModel
+    @State private var searchText = ""
 
     init() {
         _viewModel = StateObject(wrappedValue: DragonBooksViewModel())
@@ -79,14 +80,28 @@ struct DragonBooksView: View {
                             }
 
                         case .loaded, .loading:
-                            LazyVStack(spacing: 12) {
-                                ForEach(viewModel.books) { book in
-                                    NavigationLink {
-                                        BookDetailView(book: book)
-                                    } label: {
-                                        BookRow(book: book)
+                            if filteredBooks.isEmpty {
+                                if viewModel.books.isEmpty {
+                                    BooksStateCard(
+                                        title: "No books found.",
+                                        message: "Pull to refresh to check again.",
+                                        buttonTitle: "Reload"
+                                    ) {
+                                        await viewModel.loadBooks()
                                     }
-                                    .buttonStyle(.plain)
+                                } else {
+                                    NoMatchesView()
+                                }
+                            } else {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(filteredBooks) { book in
+                                        NavigationLink {
+                                            BookDetailView(book: book)
+                                        } label: {
+                                            BookRow(book: book)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
                             }
                         }
@@ -96,6 +111,7 @@ struct DragonBooksView: View {
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search books")
         .refreshable {
             await viewModel.loadBooks()
         }
@@ -104,6 +120,28 @@ struct DragonBooksView: View {
                 await viewModel.loadBooks()
             }
         }
+    }
+
+    private var filteredBooks: [DragonBook] {
+        let query = normalizedSearchText(searchText)
+        guard !query.isEmpty else {
+            return viewModel.books
+        }
+
+        return viewModel.books.filter { book in
+            [
+                book.title,
+                book.author,
+                book.authors.joined(separator: " "),
+                book.excerpt
+            ].contains { normalizedSearchText($0).contains(query) }
+        }
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 }
 

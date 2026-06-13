@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DragonArticlesView: View {
     @StateObject private var viewModel: ArticlesViewModel
+    @State private var searchText = ""
 
     init() {
         _viewModel = StateObject(wrappedValue: ArticlesViewModel())
@@ -79,14 +80,28 @@ struct DragonArticlesView: View {
                             }
 
                         case .loaded, .loading:
-                            LazyVStack(spacing: 12) {
-                                ForEach(viewModel.articles) { article in
-                                    NavigationLink {
-                                        ArticleDetailView(article: article)
-                                    } label: {
-                                        ArticleRow(article: article)
+                            if filteredArticles.isEmpty {
+                                if viewModel.articles.isEmpty {
+                                    ArticleStateCard(
+                                        title: "No articles available.",
+                                        message: "Pull to refresh to check again.",
+                                        buttonTitle: "Reload"
+                                    ) {
+                                        await viewModel.loadArticles()
                                     }
-                                    .buttonStyle(.plain)
+                                } else {
+                                    NoMatchesView()
+                                }
+                            } else {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(filteredArticles) { article in
+                                        NavigationLink {
+                                            ArticleDetailView(article: article)
+                                        } label: {
+                                            ArticleRow(article: article)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
                             }
                         }
@@ -96,6 +111,7 @@ struct DragonArticlesView: View {
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search articles")
         .refreshable {
             await viewModel.loadArticles()
         }
@@ -104,6 +120,38 @@ struct DragonArticlesView: View {
                 await viewModel.loadArticles()
             }
         }
+    }
+
+    private var filteredArticles: [DragonArticle] {
+        let query = normalizedSearchText(searchText)
+        guard !query.isEmpty else {
+            return viewModel.articles
+        }
+
+        return viewModel.articles.filter { article in
+            [
+                article.title,
+                article.source,
+                article.excerpt,
+                article.url
+            ].contains { normalizedSearchText($0).contains(query) }
+        }
+    }
+
+    private func normalizedSearchText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
+struct NoMatchesView: View {
+    var body: some View {
+        Text("No matches found.")
+            .font(.footnote)
+            .foregroundStyle(.gray)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
     }
 }
 
