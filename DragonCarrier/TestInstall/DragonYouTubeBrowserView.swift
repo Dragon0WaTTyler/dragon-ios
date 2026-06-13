@@ -242,6 +242,10 @@ struct DragonYouTubeBrowserView: View {
     }
 
     private var currentErrorText: String? {
+        guard videos.isEmpty else {
+            return nil
+        }
+
         switch selectedMode {
         case .watchLater:
             return videoErrorText
@@ -325,13 +329,18 @@ struct DragonYouTubeBrowserView: View {
         }
 
         isLoadingSections = true
+        let hadVisibleSections = !sections.isEmpty
 
         do {
             let result = try await DragonAPIClient.shared.fetchYouTubeSections()
             let response = result.value
             guard response.ok else {
-                sectionErrorText = "Backend returned an error."
-                sectionStatusText = nil
+                if hadVisibleSections {
+                    sectionErrorText = nil
+                } else {
+                    sectionErrorText = "Backend returned an error."
+                    sectionStatusText = nil
+                }
                 isLoadingSections = false
                 return
             }
@@ -346,8 +355,12 @@ struct DragonYouTubeBrowserView: View {
                 self.selectedPocketTubeSectionKey = nil
             }
         } catch {
-            sectionErrorText = dragonUserFacingMessage(for: error)
-            sectionStatusText = nil
+            if hadVisibleSections {
+                sectionErrorText = nil
+            } else {
+                sectionErrorText = dragonUserFacingMessage(for: error)
+                sectionStatusText = nil
+            }
         }
 
         isLoadingSections = false
@@ -364,6 +377,7 @@ struct DragonYouTubeBrowserView: View {
 
         isLoadingVideos = true
         let activeQuery = normalizedActiveSearchQuery
+        let hadVisibleVideos = !videos.isEmpty
         if reset {
             submittedSearchQuery = activeQuery
         }
@@ -393,7 +407,7 @@ struct DragonYouTubeBrowserView: View {
             response = result.value
 
             guard response.ok else {
-                handleVideoFailure("Backend returned an error.")
+                handleVideoFailure("Backend returned an error.", hadVisibleData: hadVisibleVideos)
                 isLoadingVideos = false
                 return
             }
@@ -415,7 +429,7 @@ struct DragonYouTubeBrowserView: View {
                 pocketTubeLastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             }
         } catch {
-            handleVideoFailure(dragonUserFacingMessage(for: error))
+            handleVideoFailure(dragonUserFacingMessage(for: error), hadVisibleData: hadVisibleVideos)
         }
 
         isLoadingVideos = false
@@ -432,6 +446,7 @@ struct DragonYouTubeBrowserView: View {
         }
 
         isLoadingMoreVideos = true
+        let hadVisibleVideos = !videos.isEmpty
 
         do {
             let response: DragonYouTubeResponse
@@ -458,7 +473,7 @@ struct DragonYouTubeBrowserView: View {
             response = result.value
 
             guard response.ok else {
-                handleVideoFailure("Backend returned an error.")
+                handleLoadMoreFailure("Backend returned an error.", hadVisibleData: hadVisibleVideos)
                 isLoadingMoreVideos = false
                 return
             }
@@ -475,7 +490,7 @@ struct DragonYouTubeBrowserView: View {
                 pocketTubeLastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             }
         } catch {
-            handleVideoFailure(dragonUserFacingMessage(for: error))
+            handleLoadMoreFailure(dragonUserFacingMessage(for: error), hadVisibleData: hadVisibleVideos)
         }
 
         isLoadingMoreVideos = false
@@ -485,9 +500,22 @@ struct DragonYouTubeBrowserView: View {
         }
     }
 
-    private func handleVideoFailure(_ message: String) {
-        videoErrorText = message
-        videoStatusText = nil
+    private func handleVideoFailure(_ message: String, hadVisibleData: Bool) {
+        if hadVisibleData {
+            videoErrorText = nil
+        } else {
+            videoErrorText = message
+            videoStatusText = nil
+        }
+    }
+
+    private func handleLoadMoreFailure(_ message: String, hadVisibleData: Bool) {
+        if hadVisibleData {
+            videoErrorText = nil
+        } else {
+            videoErrorText = message
+            videoStatusText = nil
+        }
     }
 
     private func mergeVideos(existing: [DragonYouTubeVideo], incoming: [DragonYouTubeVideo]) -> [DragonYouTubeVideo] {

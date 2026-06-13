@@ -62,8 +62,13 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
     }
 
     private func handleFailure(_ message: String) {
-        refreshErrorText = message
-        statusText = nil
+        let hasVisibleSections = !(response?.sections.isEmpty ?? true)
+        if hasVisibleSections {
+            refreshErrorText = nil
+        } else {
+            refreshErrorText = message
+            statusText = nil
+        }
 
         guard let response else {
             state = .failed(message)

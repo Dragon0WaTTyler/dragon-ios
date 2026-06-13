@@ -114,9 +114,14 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     }
 
     private func handleFailure(_ message: String) {
-        refreshErrorText = message
+        let hasVisibleVideos = !(response?.items.isEmpty ?? true)
+        if hasVisibleVideos {
+            refreshErrorText = nil
+        } else {
+            refreshErrorText = message
+            statusText = nil
+        }
         isLoadingMore = false
-        statusText = nil
 
         guard let response else {
             state = .failed(message)
@@ -127,9 +132,14 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     }
 
     private func handleLoadMoreFailure(_ message: String) {
-        refreshErrorText = message
+        let hasVisibleVideos = !(response?.items.isEmpty ?? true)
+        if hasVisibleVideos {
+            refreshErrorText = nil
+        } else {
+            refreshErrorText = message
+            statusText = nil
+        }
         isLoadingMore = false
-        statusText = nil
     }
 
     private func mergeVideos(existing: [DragonYouTubeVideo], incoming: [DragonYouTubeVideo]) -> [DragonYouTubeVideo] {
