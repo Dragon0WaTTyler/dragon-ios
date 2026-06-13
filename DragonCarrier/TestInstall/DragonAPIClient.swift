@@ -39,6 +39,7 @@ final class DragonAPIClient {
     private let session: URLSession
     private let baseURLProvider: () -> String
     private let responseCache: DragonResponseCache
+    private let snapshotFallback: DragonSnapshotFallback
 
     var backendBaseURL: String {
         baseURLProvider()
@@ -47,11 +48,13 @@ final class DragonAPIClient {
     init(
         session: URLSession = .shared,
         baseURLProvider: @escaping () -> String = currentDragonBackendBaseURL,
-        responseCache: DragonResponseCache = .shared
+        responseCache: DragonResponseCache = .shared,
+        snapshotFallback: DragonSnapshotFallback = .shared
     ) {
         self.session = session
         self.baseURLProvider = baseURLProvider
         self.responseCache = responseCache
+        self.snapshotFallback = snapshotFallback
     }
 
     private func endpointURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
@@ -195,20 +198,50 @@ final class DragonAPIClient {
                 await responseCache.save(data: data, for: url)
             }
             return DragonAPIFetchResult(value: decoded, source: .network, resolvedURL: url)
-        } catch {
-            guard allowsCaching, let cachedResponse = await responseCache.load(for: url) else {
-                throw error
+        } catch let networkError {
+            guard allowsCaching else {
+                throw networkError
+            }
+
+            if let cachedResponse = await responseCache.load(for: url) {
+                do {
+                    let decoded = try decoder.decode(Response.self, from: cachedResponse.data)
+                    return DragonAPIFetchResult(
+                        value: decoded,
+                        source: .cache(cachedResponse.metadata),
+                        resolvedURL: url
+                    )
+                } catch {
+                    throw error
+                }
+            }
+
+            let snapshotData: Data
+            do {
+                guard let data = try await snapshotFallback.apiResponseData(for: url, session: session) else {
+                    throw networkError
+                }
+                snapshotData = data
+            } catch let snapshotError {
+#if DEBUG
+                print("Dragon snapshot fallback unavailable for \(url.absoluteString): \(snapshotError)")
+#endif
+                throw networkError
             }
 
             do {
-                let decoded = try decoder.decode(Response.self, from: cachedResponse.data)
+                let decoded = try decoder.decode(Response.self, from: snapshotData)
+                await responseCache.save(data: snapshotData, for: url)
                 return DragonAPIFetchResult(
                     value: decoded,
-                    source: .cache(cachedResponse.metadata),
+                    source: .snapshot,
                     resolvedURL: url
                 )
-            } catch {
-                throw error
+            } catch let decodingError {
+#if DEBUG
+                print("Dragon snapshot fallback decode failed for \(url.absoluteString): \(decodingError)")
+#endif
+                throw decodingError
             }
         }
     }

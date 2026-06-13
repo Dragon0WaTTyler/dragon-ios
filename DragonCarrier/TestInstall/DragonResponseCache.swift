@@ -31,6 +31,7 @@ struct DragonCachedResponse: Sendable {
 enum DragonResponseSource: Sendable {
     case network
     case cache(DragonCachedResponseMetadata)
+    case snapshot
 
     var cachedMetadata: DragonCachedResponseMetadata? {
         guard case .cache(let metadata) = self else {
@@ -40,10 +41,14 @@ enum DragonResponseSource: Sendable {
     }
 
     var statusMessage: String? {
-        guard case .cache = self else {
+        switch self {
+        case .network:
             return nil
+        case .cache:
+            return "Showing cached data."
+        case .snapshot:
+            return "Loaded from snapshot."
         }
-        return "Showing cached data."
     }
 }
 
