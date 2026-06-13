@@ -30,6 +30,8 @@ struct DragonYouTubeBrowserView: View {
     @State private var didLoadSections = false
     @State private var hasMoreVideos = false
     @State private var nextVideoOffset: Int?
+    @State private var pendingVideoReset = false
+    @State private var submittedSearchQuery = ""
 
     private let limit = 50
 
@@ -75,6 +77,13 @@ struct DragonYouTubeBrowserView: View {
         .searchable(text: $searchText, prompt: "Search videos")
         .refreshable {
             await refreshCurrentMode(forceSectionsReload: selectedMode == .pocketTube)
+        }
+        .task(id: normalizedActiveSearchQuery) {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            guard normalizedActiveSearchQuery != submittedSearchQuery else { return }
+            submittedSearchQuery = normalizedActiveSearchQuery
+            await loadVideosForCurrentMode(reset: true)
         }
         .task {
             await initialize()
@@ -161,26 +170,26 @@ struct DragonYouTubeBrowserView: View {
         if isLoadingVideos && videos.isEmpty {
             loadingCard(text: "Loading videos...")
         } else if videos.isEmpty {
-            stateCard(
-                title: emptyStateTitle,
-                message: emptyStateMessage,
-                buttonTitle: "Reload"
-            ) {
-                await refreshCurrentMode(forceSectionsReload: selectedMode == .pocketTube)
-            }
-        } else {
-            if filteredVideos.isEmpty {
+            if hasActiveSearch {
                 NoMatchesView()
             } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(filteredVideos) { video in
-                        NavigationLink {
-                            YouTubeWatchView(video: video, videos: videos)
-                        } label: {
-                            YouTubeVideoRow(video: video)
-                        }
-                        .buttonStyle(.plain)
+                stateCard(
+                    title: emptyStateTitle,
+                    message: emptyStateMessage,
+                    buttonTitle: "Reload"
+                ) {
+                    await refreshCurrentMode(forceSectionsReload: selectedMode == .pocketTube)
+                }
+            }
+        } else {
+            LazyVStack(spacing: 12) {
+                ForEach(videos) { video in
+                    NavigationLink {
+                        YouTubeWatchView(video: video, videos: videos)
+                    } label: {
+                        YouTubeVideoRow(video: video)
                     }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -258,21 +267,12 @@ struct DragonYouTubeBrowserView: View {
         return "Pull to refresh to check again."
     }
 
-    private var filteredVideos: [DragonYouTubeVideo] {
-        let query = normalizedSearchText(searchText)
-        guard !query.isEmpty else {
-            return videos
-        }
+    private var hasActiveSearch: Bool {
+        !normalizedActiveSearchQuery.isEmpty
+    }
 
-        return videos.filter { video in
-            [
-                video.title,
-                video.channel,
-                video.section,
-                video.group,
-                video.playlist
-            ].contains { normalizedSearchText($0).contains(query) }
-        }
+    private var normalizedActiveSearchQuery: String {
+        normalizedSearchText(searchText)
     }
 
     @MainActor
@@ -339,11 +339,18 @@ struct DragonYouTubeBrowserView: View {
 
     @MainActor
     private func loadVideosForCurrentMode(reset: Bool) async {
-        guard !isLoadingVideos else {
+        if isLoadingVideos || isLoadingMoreVideos {
+            if reset {
+                pendingVideoReset = true
+            }
             return
         }
 
         isLoadingVideos = true
+        let activeQuery = normalizedActiveSearchQuery
+        if reset {
+            submittedSearchQuery = activeQuery
+        }
 
         do {
             let response: DragonYouTubeResponse
@@ -354,14 +361,16 @@ struct DragonYouTubeBrowserView: View {
                 response = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "watchlater",
                     limit: limit,
-                    offset: offset
+                    offset: offset,
+                    query: activeQuery
                 )
             case .pocketTube:
                 response = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
                     limit: limit,
-                    offset: offset
+                    offset: offset,
+                    query: activeQuery
                 )
             }
 
@@ -391,6 +400,10 @@ struct DragonYouTubeBrowserView: View {
         }
 
         isLoadingVideos = false
+        if pendingVideoReset {
+            pendingVideoReset = false
+            await loadVideosForCurrentMode(reset: true)
+        }
     }
 
     @MainActor
@@ -410,14 +423,16 @@ struct DragonYouTubeBrowserView: View {
                 response = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "watchlater",
                     limit: limit,
-                    offset: offset
+                    offset: offset,
+                    query: normalizedActiveSearchQuery
                 )
             case .pocketTube:
                 response = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
                     limit: limit,
-                    offset: offset
+                    offset: offset,
+                    query: normalizedActiveSearchQuery
                 )
             }
 
@@ -436,6 +451,10 @@ struct DragonYouTubeBrowserView: View {
         }
 
         isLoadingMoreVideos = false
+        if pendingVideoReset {
+            pendingVideoReset = false
+            await loadVideosForCurrentMode(reset: true)
+        }
     }
 
     private func handleVideoFailure(_ message: String) {

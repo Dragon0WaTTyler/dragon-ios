@@ -97,11 +97,14 @@ final class DragonAPIClient {
         return try JSONDecoder().decode(DragonArticlesResponse.self, from: data)
     }
 
-    func fetchBooks(limit: Int = 50, offset: Int = 0) async throws -> DragonBooksResponse {
-        let queryItems = [
+    func fetchBooks(limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonBooksResponse {
+        var queryItems = [
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset))
         ]
+        if let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: query))
+        }
 
         guard let url = endpointURL(path: "/api/v1/books", queryItems: queryItems) else {
             throw DragonAPIError.invalidURL
@@ -138,7 +141,7 @@ final class DragonAPIClient {
         return try JSONDecoder().decode(DragonMoviesResponse.self, from: data)
     }
 
-    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> DragonYouTubeResponse {
+    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonYouTubeResponse {
         var queryItems = [
             URLQueryItem(name: "source", value: source),
             URLQueryItem(name: "limit", value: String(limit)),
@@ -146,6 +149,9 @@ final class DragonAPIClient {
         ]
         if let section, !section.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryItems.append(URLQueryItem(name: "section", value: section))
+        }
+        if let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: query))
         }
 
         guard let url = endpointURL(path: "/api/v1/youtube", queryItems: queryItems) else {

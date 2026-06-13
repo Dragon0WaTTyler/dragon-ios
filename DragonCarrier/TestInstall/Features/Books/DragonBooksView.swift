@@ -71,17 +71,23 @@ struct DragonBooksView: View {
                             }
 
                         case .empty:
-                            BooksStateCard(
-                                title: "No books found.",
-                                message: "Pull to refresh to check again.",
-                                buttonTitle: "Reload"
-                            ) {
-                                await viewModel.loadBooks()
+                            if hasActiveSearch {
+                                NoMatchesView()
+                            } else {
+                                BooksStateCard(
+                                    title: "No books found.",
+                                    message: "Pull to refresh to check again.",
+                                    buttonTitle: "Reload"
+                                ) {
+                                    await viewModel.loadBooks()
+                                }
                             }
 
                         case .loaded, .loading:
-                            if filteredBooks.isEmpty {
-                                if viewModel.books.isEmpty {
+                            if viewModel.books.isEmpty {
+                                if hasActiveSearch {
+                                    NoMatchesView()
+                                } else {
                                     BooksStateCard(
                                         title: "No books found.",
                                         message: "Pull to refresh to check again.",
@@ -89,12 +95,10 @@ struct DragonBooksView: View {
                                     ) {
                                         await viewModel.loadBooks()
                                     }
-                                } else {
-                                    NoMatchesView()
                                 }
                             } else {
                                 LazyVStack(spacing: 12) {
-                                    ForEach(filteredBooks) { book in
+                                    ForEach(viewModel.books) { book in
                                         NavigationLink {
                                             BookDetailView(book: book)
                                         } label: {
@@ -124,6 +128,11 @@ struct DragonBooksView: View {
         .refreshable {
             await viewModel.loadBooks()
         }
+        .task(id: normalizedSearchText(searchText)) {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await viewModel.updateSearchQuery(searchText)
+        }
         .task {
             if case .idle = viewModel.state {
                 await viewModel.loadBooks()
@@ -131,20 +140,8 @@ struct DragonBooksView: View {
         }
     }
 
-    private var filteredBooks: [DragonBook] {
-        let query = normalizedSearchText(searchText)
-        guard !query.isEmpty else {
-            return viewModel.books
-        }
-
-        return viewModel.books.filter { book in
-            [
-                book.title,
-                book.author,
-                book.authors.joined(separator: " "),
-                book.excerpt
-            ].contains { normalizedSearchText($0).contains(query) }
-        }
+    private var hasActiveSearch: Bool {
+        !normalizedSearchText(searchText).isEmpty
     }
 
     private func normalizedSearchText(_ value: String) -> String {

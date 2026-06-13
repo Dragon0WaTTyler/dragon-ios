@@ -16,9 +16,11 @@ final class DragonBooksViewModel: ObservableObject {
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var searchQuery = ""
 
     private let client: DragonAPIClient
     private let limit: Int
+    private var requestGeneration = 0
 
     init(
         client: DragonAPIClient = .shared,
@@ -47,11 +49,30 @@ final class DragonBooksViewModel: ObservableObject {
         response?.has_more ?? false
     }
 
+    var isSearching: Bool {
+        !searchQuery.isEmpty
+    }
+
+    func updateSearchQuery(_ newValue: String) async {
+        let normalizedValue = normalizeSearchQuery(newValue)
+        guard normalizedValue != searchQuery else {
+            return
+        }
+
+        searchQuery = normalizedValue
+        await loadBooks()
+    }
+
     func loadBooks() async {
+        requestGeneration += 1
+        let requestID = requestGeneration
         state = .loading
 
         do {
-            let response = try await client.fetchBooks(limit: limit, offset: 0)
+            let response = try await client.fetchBooks(limit: limit, offset: 0, query: searchQuery)
+            guard requestID == requestGeneration else {
+                return
+            }
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
@@ -63,6 +84,9 @@ final class DragonBooksViewModel: ObservableObject {
             self.isLoadingMore = false
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
+            guard requestID == requestGeneration else {
+                return
+            }
             handleFailure(dragonUserFacingMessage(for: error))
         }
     }
@@ -76,7 +100,7 @@ final class DragonBooksViewModel: ObservableObject {
 
         do {
             let nextOffset = response.next_offset ?? response.items.count
-            let nextPage = try await client.fetchBooks(limit: limit, offset: nextOffset)
+            let nextPage = try await client.fetchBooks(limit: limit, offset: nextOffset, query: searchQuery)
             guard nextPage.ok else {
                 handleLoadMoreFailure("Backend returned an error.")
                 return
@@ -133,6 +157,10 @@ final class DragonBooksViewModel: ObservableObject {
         }
 
         return merged
+    }
+
+    private func normalizeSearchQuery(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
