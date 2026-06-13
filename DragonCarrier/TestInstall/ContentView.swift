@@ -1,0 +1,2365 @@
+import Foundation
+import Combine
+import SwiftUI
+
+// MARK: - App Root
+
+struct ContentView: View {
+    var body: some View {
+        TabView {
+            DragonHomeView()
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
+
+            DragonArticlesView()
+                .tabItem {
+                    Label("Articles", systemImage: "newspaper.fill")
+                }
+
+            DragonBooksView()
+                .tabItem {
+                    Label("Books", systemImage: "book.closed.fill")
+                }
+
+            DragonYouTubeView()
+                .tabItem {
+                    Label("YouTube", systemImage: "play.rectangle.fill")
+                }
+
+            DragonMoviesView()
+                .tabItem {
+                    Label("Movies", systemImage: "film.fill")
+                }
+
+            DragonSettingsView()
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape.fill")
+                }
+        }
+        .tint(DragonTheme.red)
+        .preferredColorScheme(.dark)
+    }
+}
+
+// MARK: - Home
+
+@MainActor
+final class HomeViewModel: ObservableObject {
+    enum State {
+        case idle
+        case loading
+        case loaded
+        case failed(String)
+    }
+
+    @Published private(set) var state: State
+    @Published private(set) var response: DragonHomeResponse?
+
+    private let client: DragonHomeFetching
+
+    init(
+        client: DragonHomeFetching = DragonAPIClient.shared,
+        initialState: State = .idle,
+        initialResponse: DragonHomeResponse? = nil
+    ) {
+        self.client = client
+        self.state = initialState
+        self.response = initialResponse
+    }
+
+    var sections: [DragonSection] {
+        response?.sections ?? []
+    }
+
+    var appName: String {
+        response?.app_name ?? "Dragon"
+    }
+
+    var serverTimeText: String {
+        guard let serverTime = response?.server_time, !serverTime.isEmpty else {
+            return "Waiting for backend"
+        }
+
+        return "Server time \(serverTime)"
+    }
+
+    var errorText: String {
+        if case .failed(let message) = state {
+            return message
+        }
+        return ""
+    }
+
+    var isLoading: Bool {
+        if case .loading = state {
+            return true
+        }
+        return false
+    }
+
+    func loadHome() async {
+        state = .loading
+
+        do {
+            let response = try await client.fetchHome()
+            guard response.ok else {
+                state = .failed("Backend returned an error.")
+                return
+            }
+
+            self.response = response
+            state = .loaded
+        } catch {
+            state = .failed(dragonUserFacingMessage(for: error))
+        }
+    }
+}
+
+private extension DragonHomeResponse {
+    static let preview = DragonHomeResponse(
+        app_name: "Dragon",
+        api_version: "v1",
+        ok: true,
+        server_time: "2026-06-12T12:00:00Z",
+        sections: [
+            DragonSection(
+                api_path: "/api/v1/movies",
+                key: "movies",
+                label: "Movies",
+                status: "available",
+                count: 4,
+                href: "/api/v1/movies"
+            ),
+            DragonSection(
+                api_path: "/api/v1/youtube/sections",
+                key: "youtube",
+                label: "YouTube",
+                status: "available",
+                count: 3,
+                href: "/api/v1/youtube/sections"
+            ),
+            DragonSection(
+                api_path: "/api/v1/articles",
+                key: "articles",
+                label: "Articles",
+                status: "available",
+                count: 2,
+                href: "/api/v1/articles"
+            ),
+            DragonSection(
+                api_path: "/api/v1/books",
+                key: "books",
+                label: "Books",
+                status: "unknown",
+                count: nil,
+                href: "/api/v1/books"
+            ),
+            DragonSection(
+                api_path: "/api/v1/chess/home",
+                key: "chess",
+                label: "Chess",
+                status: "available",
+                count: 1,
+                href: "/api/v1/chess/home"
+            ),
+        ],
+        service: "dragon"
+    )
+}
+
+struct DragonHomeView: View {
+    @StateObject private var viewModel: HomeViewModel
+
+    @MainActor
+    init() {
+        _viewModel = StateObject(wrappedValue: HomeViewModel())
+    }
+
+    init(viewModel: HomeViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(viewModel.appName)
+                                .font(.system(size: 42, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text("Native home from /api/v1/home")
+                                .font(.headline)
+                                .foregroundStyle(.gray)
+
+                            Text(viewModel.serverTimeText)
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await viewModel.loadHome()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    if viewModel.isLoading && viewModel.sections.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ProgressView()
+                                .tint(DragonTheme.red)
+
+                            Text("Loading Dragon home...")
+                                .foregroundStyle(.gray)
+                                .font(.footnote)
+                        }
+                    }
+
+                    if !viewModel.errorText.isEmpty {
+                        Text(viewModel.errorText)
+                            .font(.footnote)
+                            .foregroundStyle(DragonTheme.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    VStack(spacing: 12) {
+                        if viewModel.sections.isEmpty && !viewModel.isLoading {
+                            HomeCard(
+                                title: "No data yet",
+                                subtitle: "Tap refresh to load Dragon API",
+                                value: "—",
+                                detail: nil
+                            )
+                        } else {
+                            ForEach(viewModel.sections) { section in
+                                HomeCard(
+                                    title: section.label,
+                                    subtitle: "Status: \(section.statusDisplayText)",
+                                    value: section.displayCount,
+                                    detail: section.api_path
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .task {
+            if case .idle = viewModel.state {
+                await viewModel.loadHome()
+            }
+        }
+    }
+}
+
+// MARK: - Articles
+
+struct DragonArticlesView: View {
+    @StateObject private var viewModel: ArticlesViewModel
+
+    init() {
+        _viewModel = StateObject(wrappedValue: ArticlesViewModel())
+    }
+
+    init(viewModel: ArticlesViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DragonTheme.background.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Articles")
+                                    .font(.system(size: 38, weight: .bold))
+                                    .foregroundStyle(.white)
+
+                                Text("Latest lightweight reading snapshot")
+                                    .font(.headline)
+                                    .foregroundStyle(.gray)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                Task {
+                                    await viewModel.loadArticles()
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(DragonTheme.card)
+                                    .clipShape(Circle())
+                            }
+                        }
+
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
+                        switch viewModel.state {
+                        case .idle:
+                            ArticleProgressView()
+
+                        case .loading where viewModel.articles.isEmpty:
+                            ArticleProgressView()
+
+                        case .failed(let message):
+                            ArticleStateCard(
+                                title: "Could not load articles",
+                                message: message,
+                                buttonTitle: "Try Again"
+                            ) {
+                                await viewModel.loadArticles()
+                            }
+
+                        case .empty:
+                            ArticleStateCard(
+                                title: "No articles available.",
+                                message: "Pull to refresh to check again.",
+                                buttonTitle: "Reload"
+                            ) {
+                                await viewModel.loadArticles()
+                            }
+
+                        case .loaded, .loading:
+                            LazyVStack(spacing: 12) {
+                                ForEach(viewModel.articles) { article in
+                                    NavigationLink {
+                                        ArticleDetailView(article: article)
+                                    } label: {
+                                        ArticleRow(article: article)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(24)
+                    .padding(.bottom, 90)
+                }
+            }
+        }
+        .refreshable {
+            await viewModel.loadArticles()
+        }
+        .task {
+            if case .idle = viewModel.state {
+                await viewModel.loadArticles()
+            }
+        }
+    }
+}
+
+struct ArticleRow: View {
+    let article: DragonArticle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(article.title.isEmpty ? "Untitled article" : article.title)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+
+            HStack(spacing: 8) {
+                if !article.source.isEmpty {
+                    Text(article.source)
+                        .font(.caption)
+                        .foregroundStyle(DragonTheme.red)
+                        .lineLimit(1)
+                }
+
+                if let publishedDateText = article.publishedDisplayText {
+                    Text(publishedDateText)
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                        .lineLimit(1)
+                }
+            }
+
+            if !article.excerpt.isEmpty {
+                Text(article.excerpt)
+                    .font(.subheadline)
+                    .foregroundStyle(.gray)
+                    .lineLimit(2)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct ArticleProgressView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading articles...")
+                .foregroundStyle(.gray)
+                .font(.footnote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct ArticleStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct ArticleDetailView: View {
+    let article: DragonArticle
+    @Environment(\.openURL) private var openURL
+
+    private var articleURL: URL? {
+        let text = article.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return nil
+        }
+
+        guard let url = URL(string: text),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        return url
+    }
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text(article.title.isEmpty ? "Untitled article" : article.title)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    if !article.source.isEmpty {
+                        Text(article.source)
+                            .font(.headline)
+                            .foregroundStyle(DragonTheme.red)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let publishedDateText = article.publishedDisplayText {
+                            Text("Published")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+
+                            Text(publishedDateText)
+                                .font(.footnote.monospaced())
+                                .foregroundStyle(.white)
+                        }
+
+                        if !article.saved_at.isEmpty {
+                            Text("Saved")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+
+                            Text(article.saved_at)
+                                .font(.footnote.monospaced())
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(DragonTheme.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !article.status.isEmpty || !article.read_state.isEmpty {
+                            Text("State")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+
+                            Text([article.status, article.read_state]
+                                .filter { !$0.isEmpty }
+                                .joined(separator: " · "))
+                                .font(.footnote)
+                                .foregroundStyle(.white)
+                        }
+
+                        Text("Excerpt")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+
+                        Text(article.excerpt.isEmpty ? "No excerpt available." : article.excerpt)
+                            .font(.body)
+                            .foregroundStyle(.white)
+                            .lineSpacing(4)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(DragonTheme.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Original URL")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+
+                        Text(article.url.isEmpty ? "Unavailable" : article.url)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(articleURL == nil ? .gray : .white)
+                            .textSelection(.enabled)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(DragonTheme.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+
+                    Button {
+                        if let articleURL {
+                            openURL(articleURL)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "safari")
+                            Text(articleURL == nil ? "Original Unavailable" : "Open Original")
+                                .fontWeight(.semibold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(articleURL == nil ? DragonTheme.card : DragonTheme.red)
+                        .foregroundStyle(articleURL == nil ? .gray : .white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(DragonTheme.red.opacity(articleURL == nil ? 0.3 : 0.0), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    .disabled(articleURL == nil)
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .navigationTitle("Article")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private extension DragonArticle {
+    var publishedDisplayText: String? {
+        let rawValue = published_at.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawValue.isEmpty else {
+            return nil
+        }
+
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = parser.date(from: rawValue) {
+            return DragonArticle.displayFormatter.string(from: date)
+        }
+
+        parser.formatOptions = [.withInternetDateTime]
+        if let date = parser.date(from: rawValue) {
+            return DragonArticle.displayFormatter.string(from: date)
+        }
+
+        return rawValue
+    }
+
+    private static let displayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
+}
+
+// MARK: - Books
+
+struct DragonBooksView: View {
+    @StateObject private var viewModel: DragonBooksViewModel
+
+    init() {
+        _viewModel = StateObject(wrappedValue: DragonBooksViewModel())
+    }
+
+    init(viewModel: DragonBooksViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DragonTheme.background.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Books")
+                                    .font(.system(size: 38, weight: .bold))
+                                    .foregroundStyle(.white)
+
+                                Text("Native reading snapshot")
+                                    .font(.headline)
+                                    .foregroundStyle(.gray)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                Task {
+                                    await viewModel.loadBooks()
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(DragonTheme.card)
+                                    .clipShape(Circle())
+                            }
+                        }
+
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
+                        switch viewModel.state {
+                        case .idle:
+                            BooksLoadingView()
+
+                        case .loading where viewModel.books.isEmpty:
+                            BooksLoadingView()
+
+                        case .failed(let message):
+                            BooksStateCard(
+                                title: "Could not load books",
+                                message: message,
+                                buttonTitle: "Try Again"
+                            ) {
+                                await viewModel.loadBooks()
+                            }
+
+                        case .empty:
+                            BooksStateCard(
+                                title: "No books found.",
+                                message: "Pull to refresh to check again.",
+                                buttonTitle: "Reload"
+                            ) {
+                                await viewModel.loadBooks()
+                            }
+
+                        case .loaded, .loading:
+                            LazyVStack(spacing: 12) {
+                                ForEach(viewModel.books) { book in
+                                    NavigationLink {
+                                        BookDetailView(book: book)
+                                    } label: {
+                                        BookRow(book: book)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(24)
+                    .padding(.bottom, 90)
+                }
+            }
+        }
+        .refreshable {
+            await viewModel.loadBooks()
+        }
+        .task {
+            if case .idle = viewModel.state {
+                await viewModel.loadBooks()
+            }
+        }
+    }
+}
+
+struct BookRow: View {
+    let book: DragonBook
+
+    private var authorsText: String {
+        let joined = book.authors.joined(separator: ", ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !joined.isEmpty {
+            return joined
+        }
+        return book.author.isEmpty ? "Unknown author" : book.author
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Group {
+                if let coverURL = coverURL {
+                    AsyncImage(url: coverURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_):
+                            placeholderCover
+                        case .empty:
+                            placeholderCover
+                        @unknown default:
+                            placeholderCover
+                        }
+                    }
+                } else {
+                    placeholderCover
+                }
+            }
+            .frame(width: 52, height: 78)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(book.title.isEmpty ? "Untitled book" : book.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                Text(authorsText)
+                    .font(.subheadline)
+                    .foregroundStyle(DragonTheme.red)
+                    .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    if !book.year.isEmpty {
+                        Text(book.year)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !book.status.isEmpty {
+                        Text(book.status)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !book.score.isEmpty {
+                        Text(book.score)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+                }
+
+                if !book.excerpt.isEmpty {
+                    Text(book.excerpt)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .lineLimit(3)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var coverURL: URL? {
+        let trimmed = book.cover.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return URL(string: trimmed)
+    }
+
+    private var placeholderCover: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "book.closed")
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
+struct BooksLoadingView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading books...")
+                .foregroundStyle(.gray)
+                .font(.footnote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+#Preview("Books") {
+    DragonBooksView(
+        viewModel: DragonBooksViewModel(
+            initialState: .loaded,
+            initialResponse: .preview
+        )
+    )
+}
+
+#Preview("Book Detail") {
+    NavigationStack {
+        BookDetailView(book: DragonBooksResponse.preview.items[0])
+    }
+}
+
+struct BooksStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct MoviesStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct BookDetailView: View {
+    let book: DragonBook
+
+    private var coverURL: URL? {
+        let trimmed = book.cover.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return URL(string: trimmed)
+    }
+
+    private var authorsText: String {
+        let authors = book.authors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if !authors.isEmpty {
+            return authors.joined(separator: ", ")
+        }
+        return book.author.isEmpty ? "Unknown author" : book.author
+    }
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top, spacing: 16) {
+                        BookCoverView(url: coverURL, size: CGSize(width: 92, height: 138))
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(book.title.isEmpty ? "Untitled book" : book.title)
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text(authorsText)
+                                .font(.headline)
+                                .foregroundStyle(DragonTheme.red)
+
+                            if !book.status.isEmpty {
+                                Text(book.status)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.gray)
+                            }
+                        }
+                    }
+
+                    InfoBlock(title: "Year", value: book.year)
+                    InfoBlock(title: "Score", value: book.score)
+                    InfoBlock(title: "Excerpt", value: book.excerpt.isEmpty ? "No excerpt available." : book.excerpt)
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .navigationTitle("Book")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct BookCoverView: View {
+    let url: URL?
+    let size: CGSize
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure, .empty:
+                        placeholder
+                    @unknown default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "book.closed")
+                .font(.title2)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
+struct InfoBlock: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            Text(value.isEmpty ? "Unavailable" : value)
+                .font(.body)
+                .foregroundStyle(.white)
+                .lineSpacing(4)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+// MARK: - Movies
+
+struct DragonMoviesView: View {
+    @State private var movies: [DragonMovie] = []
+    @State private var isLoading = false
+    @State private var errorText = ""
+    @State private var lastUpdatedAt: Date?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DragonTheme.background.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Movies")
+                                    .font(.system(size: 38, weight: .bold))
+                                    .foregroundStyle(.white)
+
+                                Text("Lightweight cinema snapshot")
+                                    .font(.headline)
+                                    .foregroundStyle(.gray)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                Task {
+                                    await loadMovies()
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(DragonTheme.card)
+                                    .clipShape(Circle())
+                            }
+                        }
+
+                        if isLoading || !movies.isEmpty || lastUpdatedAt != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: lastUpdatedAt,
+                                isRefreshing: isLoading,
+                                errorText: movies.isEmpty ? nil : errorText
+                            )
+                        }
+
+                        if isLoading && movies.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ProgressView()
+                                    .tint(DragonTheme.red)
+
+                                Text("Loading movies...")
+                                    .foregroundStyle(.gray)
+                                .font(.footnote)
+                            }
+                        }
+
+                        if movies.isEmpty && !isLoading && errorText.isEmpty {
+                            MoviesStateCard(
+                                title: "No movies found.",
+                                message: "Pull to refresh to check again.",
+                                buttonTitle: "Reload"
+                            ) {
+                                await loadMovies()
+                            }
+                        }
+
+                        if !errorText.isEmpty && movies.isEmpty {
+                            MoviesStateCard(
+                                title: "Could not load movies",
+                                message: errorText,
+                                buttonTitle: "Try Again"
+                            ) {
+                                await loadMovies()
+                            }
+                        }
+
+                        LazyVStack(spacing: 12) {
+                            ForEach(movies) { movie in
+                                NavigationLink {
+                                    MovieDetailView(movie: movie)
+                                } label: {
+                                    MovieRow(movie: movie)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(24)
+                    .padding(.bottom, 90)
+                }
+            }
+        }
+        .refreshable {
+            await loadMovies()
+        }
+        .task {
+            await loadMovies()
+        }
+    }
+
+    @MainActor
+    private func loadMovies() async {
+        isLoading = true
+
+        do {
+            let response = try await DragonAPIClient.shared.fetchMovies(limit: 20)
+
+            if response.ok {
+                movies = response.items
+                lastUpdatedAt = Date()
+                errorText = ""
+            } else {
+                handleFailure("Backend returned an error.")
+            }
+        } catch {
+            handleFailure(dragonUserFacingMessage(for: error))
+        }
+
+        isLoading = false
+    }
+
+    private func handleFailure(_ message: String) {
+        errorText = message
+    }
+}
+
+// MARK: - YouTube
+
+struct DragonYouTubeView: View {
+    var body: some View {
+        DragonYouTubeBrowserView()
+    }
+}
+
+struct DragonYouTubeSectionRow: View {
+    let section: DragonYouTubeSection
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(section.label.isEmpty ? "Untitled section" : section.label)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                if !section.key.isEmpty {
+                    Text(section.key)
+                        .font(.caption)
+                        .foregroundStyle(DragonTheme.red)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Text("\(section.count)")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(DragonTheme.red)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct DragonYouTubeSectionsLoadingView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading YouTube sections...")
+                .foregroundStyle(.gray)
+                .font(.footnote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct DragonYouTubeSectionsStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct DragonYouTubeSectionDetailView: View {
+    let section: DragonYouTubeSection
+    @StateObject private var viewModel: DragonYouTubeVideosViewModel
+
+    init(section: DragonYouTubeSection) {
+        self.section = section
+        _viewModel = StateObject(wrappedValue: DragonYouTubeVideosViewModel(sectionKey: section.key))
+    }
+
+    init(section: DragonYouTubeSection, viewModel: DragonYouTubeVideosViewModel) {
+        self.section = section
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(section.label.isEmpty ? "Untitled section" : section.label)
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            if !section.key.isEmpty {
+                                Text(section.key)
+                                    .font(.headline)
+                                    .foregroundStyle(DragonTheme.red)
+                            }
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await viewModel.loadVideos()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                            }
+                        }
+
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
+                        switch viewModel.state {
+                    case .idle:
+                        DragonYouTubeVideosLoadingView()
+
+                    case .loading where viewModel.videos.isEmpty:
+                        DragonYouTubeVideosLoadingView()
+
+                    case .failed(let message):
+                        DragonYouTubeVideosStateCard(
+                            title: "Could not load videos",
+                            message: message,
+                            buttonTitle: "Try Again"
+                        ) {
+                            await viewModel.loadVideos()
+                        }
+
+                    case .empty:
+                        DragonYouTubeVideosStateCard(
+                            title: "No videos found.",
+                            message: "Pull to refresh to check again.",
+                            buttonTitle: "Reload"
+                        ) {
+                            await viewModel.loadVideos()
+                        }
+
+                    case .loaded, .loading:
+                        LazyVStack(spacing: 12) {
+                            ForEach(viewModel.videos) { video in
+                                NavigationLink {
+                                    YouTubeWatchView(video: video, videos: viewModel.videos)
+                                } label: {
+                                    YouTubeVideoRow(video: video)
+                                        .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .navigationTitle("Section")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            await viewModel.loadVideos()
+        }
+        .task {
+            if case .idle = viewModel.state {
+                await viewModel.loadVideos()
+            }
+        }
+    }
+}
+
+struct DragonYouTubeVideosLoadingView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading videos...")
+                .foregroundStyle(.gray)
+                .font(.footnote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+struct DragonYouTubeVideosStateCard: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+
+            Button {
+                Task {
+                    await action()
+                }
+            } label: {
+                Text(buttonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+#Preview("YouTube Sections") {
+    DragonYouTubeView()
+}
+
+#Preview("YouTube Videos") {
+    NavigationStack {
+        DragonYouTubeSectionDetailView(
+            section: DragonYouTubeSection(key: "tech", label: "tech", count: 200),
+            viewModel: DragonYouTubeVideosViewModel(
+                sectionKey: "tech",
+                initialState: .loaded,
+                initialResponse: .preview
+            )
+        )
+    }
+}
+
+struct DragonYouTubeLegacyView: View {
+    @State private var videos: [DragonYouTubeVideo] = []
+    @State private var sections: [DragonYouTubeSection] = []
+    @State private var selectedMode: DragonYouTubeMode = .watchLater
+    @State private var selectedSectionKey: String?
+    @State private var isLoading = false
+    @State private var isLoadingSections = false
+    @State private var errorText = ""
+    @State private var didLoadSections = false
+
+    private let limit = 20
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("YouTube")
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text("Lightweight video snapshot")
+                                .font(.headline)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await refreshCurrentBrowser()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(DragonTheme.card)
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    Picker("YouTube Mode", selection: $selectedMode) {
+                        Text("Watch Later").tag(DragonYouTubeMode.watchLater)
+                        Text("PocketTube").tag(DragonYouTubeMode.pocketTube)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: selectedMode) { _, newValue in
+                        Task {
+                            await handleModeChange(newValue)
+                        }
+                    }
+
+                    if selectedMode == .pocketTube {
+                        if isLoadingSections && sections.isEmpty {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                    .tint(DragonTheme.red)
+                                Text("Loading sections...")
+                                    .foregroundStyle(.gray)
+                                    .font(.footnote)
+                            }
+                        } else if !pocketTubeSections.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 10) {
+                                    ForEach(pocketTubeSections) { section in
+                                        Button {
+                                            selectedSectionKey = section.key
+                                            Task {
+                                                await loadVideos()
+                                            }
+                                        } label: {
+                                            Text(section.label)
+                                                .font(.footnote.weight(.semibold))
+                                                .foregroundStyle(isSelectedSection(section) ? .white : .gray)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 10)
+                                                .background(isSelectedSection(section) ? DragonTheme.red : DragonTheme.card)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 999)
+                                                        .stroke(DragonTheme.red.opacity(isSelectedSection(section) ? 0.0 : 0.35), lineWidth: 1)
+                                                )
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if isLoading && videos.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ProgressView()
+                                .tint(DragonTheme.red)
+
+                            Text("Loading videos...")
+                                .foregroundStyle(.gray)
+                                .font(.footnote)
+                        }
+                    }
+
+                    if !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(DragonTheme.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if videos.isEmpty && !isLoading && errorText.isEmpty {
+                        Text(emptyStateText)
+                            .font(.footnote)
+                            .foregroundStyle(.gray)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DragonTheme.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    LazyVStack(spacing: 12) {
+                        ForEach(videos) { video in
+                            NavigationLink {
+                                YouTubeWatchView(video: video, videos: videos)
+                            } label: {
+                                YouTubeVideoRow(video: video)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+        .task {
+            await initializeYouTubeBrowser()
+        }
+    }
+
+    @MainActor
+    private func refreshCurrentBrowser() async {
+        if selectedMode == .pocketTube {
+            await loadSectionsIfNeeded(forceReload: true)
+        }
+        await loadVideos()
+    }
+
+    private var emptyStateText: String {
+        switch selectedMode {
+        case .watchLater:
+            return "No Watch Later videos found."
+        case .pocketTube:
+            return "No videos in this section."
+        }
+    }
+
+    private var currentSectionLabel: String? {
+        guard let selectedSectionKey else {
+            return nil
+        }
+        return sections.first(where: { $0.key == selectedSectionKey })?.label
+    }
+
+    private func isSelectedSection(_ section: DragonYouTubeSection) -> Bool {
+        selectedSectionKey == section.key
+    }
+
+    private var pocketTubeSections: [DragonYouTubeSection] {
+        sections.filter { $0.key.lowercased() != "watchlater" }
+    }
+
+    private var preferredPocketTubeSectionKey: String? {
+        pocketTubeSections.first?.key
+    }
+
+    @MainActor
+    private func initializeYouTubeBrowser() async {
+        if selectedMode == .pocketTube {
+            await loadSectionsIfNeeded(forceReload: false)
+        }
+        await loadVideos()
+    }
+
+    @MainActor
+    private func handleModeChange(_ newMode: DragonYouTubeMode) async {
+        if newMode == .pocketTube {
+            await loadSectionsIfNeeded(forceReload: false)
+            if selectedSectionKey == nil {
+                selectedSectionKey = preferredPocketTubeSectionKey
+            }
+        }
+        await loadVideos()
+    }
+
+    @MainActor
+    private func loadSectionsIfNeeded(forceReload: Bool) async {
+        if isLoadingSections && !forceReload {
+            return
+        }
+
+        if didLoadSections && !forceReload && !sections.isEmpty {
+            return
+        }
+
+        isLoadingSections = true
+        errorText = ""
+
+        do {
+            let response = try await DragonAPIClient.shared.fetchYouTubeSections()
+            if response.ok {
+                sections = response.sections.sorted { left, right in
+                    if left.key == "watchlater" {
+                        return true
+                    }
+                    if right.key == "watchlater" {
+                        return false
+                    }
+                    return left.label.localizedCaseInsensitiveCompare(right.label) == .orderedAscending
+                }
+                didLoadSections = true
+                let selectedKey = selectedSectionKey ?? ""
+                if selectedKey.isEmpty || !sections.contains(where: { $0.key == selectedKey }) || selectedKey.lowercased() == "watchlater" {
+                    selectedSectionKey = preferredPocketTubeSectionKey
+                }
+            } else {
+                errorText = "Backend returned an error."
+            }
+        } catch {
+            errorText = dragonUserFacingMessage(for: error)
+        }
+
+        isLoadingSections = false
+    }
+
+    @MainActor
+    private func loadVideos() async {
+        isLoading = true
+        errorText = ""
+
+        do {
+            let response: DragonYouTubeResponse
+            switch selectedMode {
+            case .watchLater:
+                response = try await DragonAPIClient.shared.fetchYouTubeVideos(source: "watchlater", limit: limit)
+            case .pocketTube:
+                if sections.isEmpty {
+                    await loadSectionsIfNeeded(forceReload: false)
+                }
+                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                    source: "pockettube",
+                    section: selectedSectionKey,
+                    limit: limit
+                )
+            }
+
+            if response.ok {
+                videos = response.items
+            } else {
+                errorText = "Backend returned an error."
+            }
+        } catch {
+            errorText = dragonUserFacingMessage(for: error)
+        }
+
+        isLoading = false
+    }
+}
+
+enum DragonYouTubeMode: String, CaseIterable, Identifiable {
+    case watchLater
+    case pocketTube
+
+    var id: String { rawValue }
+}
+
+struct YouTubeVideoRow: View {
+    let video: DragonYouTubeVideo
+
+    private var thumbnailURL: URL? {
+        let trimmed = video.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        return URL(string: trimmed)
+    }
+
+    private var tagsText: String {
+        [video.section, video.group, video.playlist].filter { !$0.isEmpty }.joined(separator: " • ")
+    }
+
+    private var channelInitial: String? {
+        let trimmed = video.channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else {
+            return nil
+        }
+        return String(first).uppercased()
+    }
+
+    private var subtitleText: String {
+        let channel = video.channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let metadataParts = [video.published_at, video.saved_at].filter { !$0.isEmpty }
+        let metadata = metadataParts.isEmpty ? video.duration.trimmingCharacters(in: .whitespacesAndNewlines) : metadataParts.joined(separator: " • ")
+
+        switch (channel.isEmpty, metadata.isEmpty) {
+        case (true, true):
+            return ""
+        case (false, true):
+            return channel
+        case (true, false):
+            return metadata
+        case (false, false):
+            return "\(channel) • \(metadata)"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if let thumbnailURL {
+                        AsyncImage(url: thumbnailURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            case .failure(_):
+                                placeholderThumbnail
+                            case .empty:
+                                placeholderThumbnail
+                            @unknown default:
+                                placeholderThumbnail
+                            }
+                        }
+                    } else {
+                        placeholderThumbnail
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                if !video.duration.isEmpty {
+                    Text(video.duration)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.85))
+                        .clipShape(Capsule())
+                        .padding(10)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                channelAvatar
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(video.title.isEmpty ? "Untitled video" : video.title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(3)
+
+                    if !subtitleText.isEmpty {
+                        Text(subtitleText)
+                            .font(.subheadline)
+                            .foregroundStyle(.gray)
+                            .lineLimit(2)
+                    }
+
+                    if !tagsText.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(tagsText.split(separator: "•").map { $0.trimmingCharacters(in: .whitespaces) }, id: \.self) { tag in
+                                Text(tag)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(DragonTheme.red.opacity(0.92))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(DragonTheme.red.opacity(0.09))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "ellipsis.vertical")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.gray.opacity(0.8))
+                    .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var channelAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(DragonTheme.red.opacity(0.18))
+
+            if let channelInitial {
+                Text(channelInitial)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 32, height: 32)
+    }
+
+    private var placeholderThumbnail: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.black.opacity(0.55))
+            Image(systemName: "play.rectangle")
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red.opacity(0.9))
+        }
+    }
+}
+
+struct MovieRow: View {
+    let movie: DragonMovie
+
+    private var posterURL: URL? {
+        let trimmed = movie.poster.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        return URL(string: trimmed)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Group {
+                if let posterURL {
+                    AsyncImage(url: posterURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_):
+                            placeholderPoster
+                        case .empty:
+                            placeholderPoster
+                        @unknown default:
+                            placeholderPoster
+                        }
+                    }
+                } else {
+                    placeholderPoster
+                }
+            }
+            .frame(width: 52, height: 78)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(movie.title.isEmpty ? "Untitled movie" : movie.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    if !movie.year.isEmpty {
+                        Text(movie.year)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !movie.status.isEmpty {
+                        Text(movie.status)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !movie.score.isEmpty {
+                        Text(movie.score)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+
+                    if !movie.type.isEmpty {
+                        Text(movie.type)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+                }
+
+                if !movie.overview.isEmpty {
+                    Text(movie.overview)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .lineLimit(3)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var placeholderPoster: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "film")
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
+// MARK: - Placeholder Sections
+
+struct PlaceholderSectionView: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(title)
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.body)
+                    .foregroundStyle(.gray)
+
+                Text("V0 placeholder. API connection comes next.")
+                    .font(.caption)
+                    .foregroundStyle(DragonTheme.red)
+
+                Spacer()
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - Cards
+
+struct HomeCard: View {
+    let title: String
+    let subtitle: String
+    let value: String
+    let detail: String?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.gray)
+
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(DragonTheme.red.opacity(0.9))
+                }
+            }
+
+            Spacer()
+
+            Text(value)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(DragonTheme.red)
+                .monospacedDigit()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+// MARK: - Settings
+
+struct DragonSettingsView: View {
+    @State private var backendURLDraft = DragonBackendSettingsStore().backendURL
+    @State private var connectionState: DragonBackendConnectionState = .notTested
+    @State private var isChecking = false
+    @State private var lastCheckedAt: Date?
+    private let settingsStore = DragonBackendSettingsStore()
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Settings")
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(.white)
+
+                Text("Dragon connection")
+                    .font(.headline)
+                    .foregroundStyle(.gray)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Backend URL")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+
+                    TextField("http://127.0.0.1:5000", text: $backendURLDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                        .keyboardType(.URL)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(Color.black.opacity(0.35))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    Text(statusLabel)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(statusColor)
+
+                    Text("Current backend URL: \(settingsStore.backendURL)")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                        .lineLimit(2)
+
+                    Text(lastCheckedLabel)
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+
+                    if let detailText {
+                        Text(detailText)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DragonTheme.card)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
+                HStack(spacing: 12) {
+                    Button("Save") {
+                        saveBackendURL()
+                    }
+                    .buttonStyle(DragonFilledButtonStyle())
+
+                    Button {
+                        checkBackend()
+                    } label: {
+                        HStack {
+                            if isChecking {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+
+                            Text(isChecking ? "Testing..." : "Test Connection")
+                        }
+                    }
+                    .buttonStyle(DragonFilledButtonStyle())
+                    .disabled(isChecking)
+                }
+
+                Button("Reset backend URL") {
+                    resetBackendURL()
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+
+                Spacer()
+            }
+            .padding(24)
+            .task {
+                backendURLDraft = settingsStore.backendURL
+            }
+        }
+    }
+
+    private func saveBackendURL() {
+        guard let normalized = settingsStore.saveBackendURL(backendURLDraft) else {
+            connectionState = .invalidURL
+            return
+        }
+
+        backendURLDraft = normalized
+        connectionState = .notTested
+        lastCheckedAt = nil
+    }
+
+    private func resetBackendURL() {
+        backendURLDraft = settingsStore.resetToLocalBackendURL()
+        connectionState = .notTested
+        lastCheckedAt = nil
+    }
+
+    private var statusLabel: String {
+        switch connectionState {
+        case .notTested:
+            return "Not tested"
+        case .connected:
+            return "Connected"
+        case .failed:
+            return "Check failed"
+        case .invalidURL:
+            return "Invalid URL"
+        }
+    }
+
+    private var statusColor: Color {
+        switch connectionState {
+        case .connected:
+            return .green
+        case .failed, .invalidURL:
+            return DragonTheme.red
+        case .notTested:
+            return .gray
+        }
+    }
+
+    private var detailText: String? {
+        switch connectionState {
+        case .notTested:
+            return "No API response yet"
+        case .connected:
+            return "Backend is reachable."
+        case .failed(let message):
+            return message
+        case .invalidURL:
+            return "Enter a valid http:// or https:// URL"
+        }
+    }
+
+    private func checkBackend() {
+        guard normalizeDragonBackendBaseURL(backendURLDraft) != nil else {
+            connectionState = .invalidURL
+            lastCheckedAt = Date()
+            return
+        }
+
+        isChecking = true
+        connectionState = .notTested
+
+        Task {
+            defer { isChecking = false }
+
+            let normalizedDraft = normalizeDragonBackendBaseURL(backendURLDraft) ?? settingsStore.backendURL
+            let workingClient = DragonAPIClient(baseURLProvider: { normalizedDraft })
+
+            switch await workingClient.testBackendConnection() {
+            case .success:
+                connectionState = .connected
+                lastCheckedAt = Date()
+            case .failure(let error):
+                connectionState = .failed(dragonUserFacingMessage(for: error))
+                lastCheckedAt = Date()
+            }
+        }
+    }
+
+    private var lastCheckedLabel: String {
+        guard let lastCheckedAt else {
+            return "Last checked: Never"
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return "Last checked: \(formatter.string(from: lastCheckedAt))"
+    }
+}
+
+private struct DragonFilledButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(DragonTheme.red.opacity(configuration.isPressed ? 0.8 : 1))
+            .foregroundStyle(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct DragonOutlineButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(DragonTheme.card)
+            .foregroundStyle(.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(DragonTheme.red.opacity(configuration.isPressed ? 0.6 : 1), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+#Preview {
+    DragonHomeView(
+        viewModel: HomeViewModel(
+            initialState: .loaded,
+            initialResponse: .preview
+        )
+    )
+}
+
+#Preview("Articles") {
+    DragonArticlesView(
+        viewModel: ArticlesViewModel(
+            initialState: .loaded,
+            initialResponse: .preview
+        )
+    )
+}
+
+#Preview("Article Detail") {
+    NavigationStack {
+        ArticleDetailView(article: DragonArticlesResponse.preview.items[0])
+    }
+}

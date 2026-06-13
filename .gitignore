@@ -1,0 +1,6 @@
+
+# Xcode local user state
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
