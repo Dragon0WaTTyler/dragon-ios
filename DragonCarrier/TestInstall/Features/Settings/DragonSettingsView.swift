@@ -5,7 +5,13 @@ struct DragonSettingsView: View {
     @State private var connectionState: DragonBackendConnectionState = .notTested
     @State private var isChecking = false
     @State private var lastCheckedAt: Date?
+    @State private var cacheItemCount: Int = 0
+    @State private var cacheSizeBytes: Int64 = 0
+    @State private var isRefreshingCacheInfo = false
+    @State private var cacheStatusText: String?
+    @State private var showClearCacheConfirmation = false
     private let settingsStore = DragonBackendSettingsStore()
+    private let responseCache = DragonResponseCache.shared
 
     var body: some View {
         ZStack {
@@ -63,6 +69,62 @@ struct DragonSettingsView: View {
                 .background(DragonTheme.card)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
 
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Local cache")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+
+                            Text("\(cacheItemCount) cached response\(cacheItemCount == 1 ? "" : "s")")
+                                .font(.footnote)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Text(formattedCacheSize)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+
+                    if let cacheStatusText, !cacheStatusText.isEmpty {
+                        Text(cacheStatusText)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            Task {
+                                await refreshCacheInfo()
+                            }
+                        } label: {
+                            HStack {
+                                if isRefreshingCacheInfo {
+                                    ProgressView()
+                                        .tint(.white)
+                                }
+
+                                Text(isRefreshingCacheInfo ? "Refreshing..." : "Refresh cache info")
+                            }
+                        }
+                        .buttonStyle(DragonFilledButtonStyle())
+                        .disabled(isRefreshingCacheInfo)
+
+                        Button {
+                            showClearCacheConfirmation = true
+                        } label: {
+                            Text("Clear local cache")
+                        }
+                        .buttonStyle(DragonOutlineButtonStyle())
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DragonTheme.card)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
                 HStack(spacing: 12) {
                     Button("Save") {
                         saveBackendURL()
@@ -95,6 +157,17 @@ struct DragonSettingsView: View {
             .padding(24)
             .task {
                 backendURLDraft = settingsStore.backendURL
+                await refreshCacheInfo()
+            }
+            .alert("Clear local cache?", isPresented: $showClearCacheConfirmation) {
+                Button("Clear", role: .destructive) {
+                    Task {
+                        await clearLocalCache()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes stored API response cache files only. Backend settings stay unchanged.")
             }
         }
     }
@@ -114,6 +187,42 @@ struct DragonSettingsView: View {
         backendURLDraft = settingsStore.resetToLocalBackendURL()
         connectionState = .notTested
         lastCheckedAt = nil
+    }
+
+    @MainActor
+    private func refreshCacheInfo() async {
+        isRefreshingCacheInfo = true
+        cacheStatusText = nil
+
+        do {
+            let count = try await responseCache.cacheItemCount()
+            let sizeBytes = try await responseCache.cacheSizeBytes()
+
+            cacheItemCount = count
+            cacheSizeBytes = sizeBytes
+            cacheStatusText = nil
+            isRefreshingCacheInfo = false
+        } catch {
+            cacheStatusText = "Could not load cache info."
+            isRefreshingCacheInfo = false
+        }
+    }
+
+    @MainActor
+    private func clearLocalCache() async {
+        isRefreshingCacheInfo = true
+        cacheStatusText = nil
+
+        do {
+            try await responseCache.clearAll()
+            cacheItemCount = (try? await responseCache.cacheItemCount()) ?? 0
+            cacheSizeBytes = (try? await responseCache.cacheSizeBytes()) ?? 0
+            cacheStatusText = "Local cache cleared."
+            isRefreshingCacheInfo = false
+        } catch {
+            cacheStatusText = "Could not clear local cache."
+            isRefreshingCacheInfo = false
+        }
     }
 
     private var statusLabel: String {
@@ -191,6 +300,18 @@ struct DragonSettingsView: View {
         formatter.doesRelativeDateFormatting = true
         return "Last checked: \(formatter.string(from: lastCheckedAt))"
     }
+
+    private var formattedCacheSize: String {
+        Self.byteCountFormatter.string(fromByteCount: cacheSizeBytes)
+    }
+
+    private static let byteCountFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        formatter.isAdaptive = true
+        return formatter
+    }()
 }
 
 private struct DragonFilledButtonStyle: ButtonStyle {

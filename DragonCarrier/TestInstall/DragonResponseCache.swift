@@ -112,18 +112,61 @@ actor DragonResponseCache {
         }
     }
 
-    private func cacheDirectoryURL() throws -> URL {
+    func cacheItemCount() throws -> Int {
+        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
+        let urls = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        return urls.filter { $0.pathExtension.lowercased() == "json" }.count
+    }
+
+    func cacheSizeBytes() throws -> Int64 {
+        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
+        let urls = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var total: Int64 = 0
+        for url in urls where url.pathExtension.lowercased() == "json" {
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            total += Int64(values.fileSize ?? 0)
+        }
+        return total
+    }
+
+    func clearAll() throws {
+        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
+        guard fileManager.fileExists(atPath: directoryURL.path) else {
+            return
+        }
+
+        let urls = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+
+        for url in urls where url.pathExtension.lowercased() == "json" {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private func cacheDirectoryURL(createIfNeeded: Bool = true) throws -> URL {
         let baseDirectory = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
-            create: true
+            create: createIfNeeded
         )
         return baseDirectory.appendingPathComponent("DragonResponseCache", isDirectory: true)
     }
 
     private func cacheFileURL(for url: URL, directoryURL: URL? = nil) throws -> URL {
-        let baseDirectory = try directoryURL ?? cacheDirectoryURL()
+        let baseDirectory = try directoryURL ?? cacheDirectoryURL(createIfNeeded: true)
         return baseDirectory.appendingPathComponent(cacheFileName(for: url), isDirectory: false)
     }
 
