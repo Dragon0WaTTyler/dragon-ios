@@ -317,8 +317,19 @@ struct DragonArticlesView: View {
                             }
                         }
 
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
                         switch viewModel.state {
-                        case .idle, .loading where viewModel.articles.isEmpty:
+                        case .idle:
+                            ArticleProgressView()
+
+                        case .loading where viewModel.articles.isEmpty:
                             ArticleProgressView()
 
                         case .failed(let message):
@@ -679,8 +690,19 @@ struct DragonBooksView: View {
                             }
                         }
 
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
                         switch viewModel.state {
-                        case .idle, .loading where viewModel.books.isEmpty:
+                        case .idle:
+                            BooksLoadingView()
+
+                        case .loading where viewModel.books.isEmpty:
                             BooksLoadingView()
 
                         case .failed(let message):
@@ -1036,70 +1058,89 @@ struct DragonMoviesView: View {
     @State private var movies: [DragonMovie] = []
     @State private var isLoading = false
     @State private var errorText = ""
+    @State private var lastUpdatedAt: Date?
 
     var body: some View {
-        ZStack {
-            DragonTheme.background.ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                DragonTheme.background.ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Movies")
-                                .font(.system(size: 38, weight: .bold))
-                                .foregroundStyle(.white)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Movies")
+                                    .font(.system(size: 38, weight: .bold))
+                                    .foregroundStyle(.white)
 
-                            Text("Lightweight cinema snapshot")
-                                .font(.headline)
-                                .foregroundStyle(.gray)
-                        }
-
-                        Spacer()
-
-                        Button {
-                            Task {
-                                await loadMovies()
+                                Text("Lightweight cinema snapshot")
+                                    .font(.headline)
+                                    .foregroundStyle(.gray)
                             }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(DragonTheme.card)
-                                .clipShape(Circle())
+
+                            Spacer()
+
+                            Button {
+                                Task {
+                                    await loadMovies()
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(DragonTheme.card)
+                                    .clipShape(Circle())
+                            }
                         }
-                    }
 
-                    if isLoading && movies.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ProgressView()
-                                .tint(DragonTheme.red)
+                        if isLoading || !movies.isEmpty || lastUpdatedAt != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: lastUpdatedAt,
+                                isRefreshing: isLoading,
+                                errorText: movies.isEmpty ? nil : errorText
+                            )
+                        }
 
-                            Text("Loading movies...")
-                                .foregroundStyle(.gray)
+                        if isLoading && movies.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ProgressView()
+                                    .tint(DragonTheme.red)
+
+                                Text("Loading movies...")
+                                    .foregroundStyle(.gray)
+                                    .font(.footnote)
+                            }
+                        }
+
+                        if !errorText.isEmpty && movies.isEmpty {
+                            Text(errorText)
                                 .font(.footnote)
+                                .foregroundStyle(DragonTheme.red)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(DragonTheme.card)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
+
+                        LazyVStack(spacing: 12) {
+                            ForEach(movies) { movie in
+                                NavigationLink {
+                                    MovieDetailView(movie: movie)
+                                } label: {
+                                    MovieRow(movie: movie)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
-
-                    if !errorText.isEmpty {
-                        Text(errorText)
-                            .font(.footnote)
-                            .foregroundStyle(DragonTheme.red)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(DragonTheme.card)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
-
-                    LazyVStack(spacing: 12) {
-                        ForEach(movies) { movie in
-                            MovieRow(movie: movie)
-                        }
-                    }
+                    .padding(24)
+                    .padding(.bottom, 90)
                 }
-                .padding(24)
-                .padding(.bottom, 90)
             }
+        }
+        .refreshable {
+            await loadMovies()
         }
         .task {
             await loadMovies()
@@ -1109,21 +1150,26 @@ struct DragonMoviesView: View {
     @MainActor
     private func loadMovies() async {
         isLoading = true
-        errorText = ""
 
         do {
             let response = try await DragonAPIClient.shared.fetchMovies(limit: 20)
 
             if response.ok {
                 movies = response.items
+                lastUpdatedAt = Date()
+                errorText = ""
             } else {
-                errorText = "Dragon API responded but ok=false"
+                handleFailure("Dragon API responded but ok=false")
             }
         } catch {
-            errorText = "Could not load /api/v1/movies: \(error.localizedDescription)"
+            handleFailure("Could not load /api/v1/movies: \(error.localizedDescription)")
         }
 
         isLoading = false
+    }
+
+    private func handleFailure(_ message: String) {
+        errorText = message
     }
 }
 
@@ -1170,12 +1216,23 @@ struct DragonYouTubeView: View {
                                     .foregroundStyle(.white)
                                     .frame(width: 44, height: 44)
                                     .background(DragonTheme.card)
-                                    .clipShape(Circle())
+                                .clipShape(Circle())
                             }
                         }
 
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
                         switch viewModel.state {
-                        case .idle, .loading where viewModel.sections.isEmpty:
+                        case .idle:
+                            DragonYouTubeSectionsLoadingView()
+
+                        case .loading where viewModel.sections.isEmpty:
                             DragonYouTubeSectionsLoadingView()
 
                         case .failed(let message):
@@ -1363,11 +1420,22 @@ struct DragonYouTubeSectionDetailView: View {
                                 .frame(width: 44, height: 44)
                                 .background(DragonTheme.card)
                                 .clipShape(Circle())
+                            }
                         }
-                    }
 
-                    switch viewModel.state {
-                    case .idle, .loading where viewModel.videos.isEmpty:
+                        if viewModel.response != nil {
+                            DragonRefreshStatusView(
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.refreshErrorText
+                            )
+                        }
+
+                        switch viewModel.state {
+                    case .idle:
+                        DragonYouTubeVideosLoadingView()
+
+                    case .loading where viewModel.videos.isEmpty:
                         DragonYouTubeVideosLoadingView()
 
                     case .failed(let message):
@@ -1391,8 +1459,13 @@ struct DragonYouTubeSectionDetailView: View {
                     case .loaded, .loading:
                         LazyVStack(spacing: 12) {
                             ForEach(viewModel.videos) { video in
-                                YouTubeVideoRow(video: video)
-                                    .padding(.vertical, 4)
+                                NavigationLink {
+                                    YouTubeWatchView(video: video, videos: viewModel.videos)
+                                } label: {
+                                    YouTubeVideoRow(video: video)
+                                        .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -1618,7 +1691,12 @@ struct DragonYouTubeLegacyView: View {
 
                     LazyVStack(spacing: 12) {
                         ForEach(videos) { video in
-                            YouTubeVideoRow(video: video)
+                            NavigationLink {
+                                YouTubeWatchView(video: video, videos: videos)
+                            } label: {
+                                YouTubeVideoRow(video: video)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -1770,7 +1848,6 @@ enum DragonYouTubeMode: String, CaseIterable, Identifiable {
 
 struct YouTubeVideoRow: View {
     let video: DragonYouTubeVideo
-    @Environment(\.openURL) private var openURL
 
     private var thumbnailURL: URL? {
         let trimmed = video.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1779,21 +1856,6 @@ struct YouTubeVideoRow: View {
         }
 
         return URL(string: trimmed)
-    }
-
-    private var videoURL: URL? {
-        let trimmed = video.url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return nil
-        }
-
-        return url
     }
 
     private var tagsText: String {
@@ -1891,25 +1953,6 @@ struct YouTubeVideoRow: View {
                                     .background(DragonTheme.red.opacity(0.09))
                                     .clipShape(Capsule())
                             }
-                        }
-                    }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            if let videoURL {
-                                openURL(videoURL)
-                            }
-                        } label: {
-                            Label(videoURL == nil ? "Unavailable" : "Open in YouTube", systemImage: "safari")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(videoURL == nil ? .gray : .white)
-                        }
-                        .disabled(videoURL == nil)
-
-                        if videoURL != nil {
-                            Text("•")
-                                .font(.caption)
-                                .foregroundStyle(.gray.opacity(0.7))
                         }
                     }
                 }

@@ -13,6 +13,8 @@ final class ArticlesViewModel: ObservableObject {
 
     @Published private(set) var state: State
     @Published private(set) var response: DragonArticlesResponse?
+    @Published private(set) var lastUpdatedAt: Date?
+    @Published private(set) var refreshErrorText: String?
 
     private let client: DragonArticlesFetching
     private let limit: Int
@@ -33,23 +35,41 @@ final class ArticlesViewModel: ObservableObject {
         response?.items ?? []
     }
 
+    var isLoading: Bool {
+        if case .loading = state {
+            return true
+        }
+        return false
+    }
+
     func loadArticles() async {
         state = .loading
 
         do {
             let response = try await client.fetchArticles(limit: limit)
             guard response.ok else {
-                self.response = nil
-                state = .failed("Dragon API responded but ok=false")
+                handleFailure("Dragon API responded but ok=false")
                 return
             }
 
             self.response = response
+            self.lastUpdatedAt = Date()
+            self.refreshErrorText = nil
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
-            self.response = nil
-            state = .failed("Could not load /api/v1/articles: \(error.localizedDescription)")
+            handleFailure("Could not load /api/v1/articles: \(error.localizedDescription)")
         }
+    }
+
+    private func handleFailure(_ message: String) {
+        refreshErrorText = message
+
+        guard let response else {
+            state = .failed(message)
+            return
+        }
+
+        state = response.items.isEmpty ? .empty : .loaded
     }
 }
 
