@@ -20,7 +20,7 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
     private let dataSource: DragonDataSource
 
     init(
-        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
+        dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
         initialState: State = .idle,
         initialResponse: DragonYouTubeSectionsResponse? = nil
     ) {

@@ -21,7 +21,7 @@ final class ArticlesViewModel: ObservableObject {
     private let limit: Int
 
     init(
-        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
+        dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
         limit: Int = 20,
         initialState: State = .idle,
         initialResponse: DragonArticlesResponse? = nil

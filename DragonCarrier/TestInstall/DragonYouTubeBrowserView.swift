@@ -38,7 +38,7 @@ struct DragonYouTubeBrowserView: View {
     private let dataSource: DragonDataSource
     private let limit = 50
 
-    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+    init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
         self.dataSource = dataSource
     }
 

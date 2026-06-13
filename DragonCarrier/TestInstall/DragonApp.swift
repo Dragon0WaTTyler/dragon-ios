@@ -11,7 +11,7 @@ import SwiftUI
 struct DragonApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(dataSource: DragonDataSourceFactory.defaultDataSource)
         }
     }
 }

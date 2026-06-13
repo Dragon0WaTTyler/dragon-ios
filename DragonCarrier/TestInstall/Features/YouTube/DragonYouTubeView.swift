@@ -3,7 +3,7 @@ import SwiftUI
 struct DragonYouTubeView: View {
     private let dataSource: DragonDataSource
 
-    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+    init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
         self.dataSource = dataSource
     }
 

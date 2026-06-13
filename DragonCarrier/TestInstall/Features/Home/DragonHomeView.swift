@@ -20,7 +20,7 @@ final class HomeViewModel: ObservableObject {
     private let dataSource: DragonDataSource
 
     init(
-        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
+        dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
         initialState: State = .idle,
         initialResponse: DragonHomeResponse? = nil
     ) {
@@ -144,7 +144,7 @@ struct DragonHomeView: View {
     @StateObject private var viewModel: HomeViewModel
 
     @MainActor
-    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+    init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
         _viewModel = StateObject(wrappedValue: HomeViewModel(dataSource: dataSource))
     }
 

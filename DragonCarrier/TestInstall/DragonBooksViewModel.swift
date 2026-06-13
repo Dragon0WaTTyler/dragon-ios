@@ -24,7 +24,7 @@ final class DragonBooksViewModel: ObservableObject {
     private var requestGeneration = 0
 
     init(
-        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
+        dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
         limit: Int = 50,
         initialState: State = .idle,
         initialResponse: DragonBooksResponse? = nil

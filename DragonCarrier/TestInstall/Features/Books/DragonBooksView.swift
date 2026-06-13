@@ -4,7 +4,7 @@ struct DragonBooksView: View {
     @StateObject private var viewModel: DragonBooksViewModel
     @State private var searchText = ""
 
-    init(dataSource: DragonDataSource = DragonRemoteDataSource.shared) {
+    init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
         _viewModel = StateObject(wrappedValue: DragonBooksViewModel(dataSource: dataSource))
     }
 

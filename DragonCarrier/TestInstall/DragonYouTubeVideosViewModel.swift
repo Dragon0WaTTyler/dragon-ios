@@ -25,7 +25,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     init(
         sectionKey: String,
         limit: Int = 50,
-        dataSource: DragonDataSource = DragonRemoteDataSource.shared,
+        dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
         initialState: State = .idle,
         initialResponse: DragonYouTubeVideosResponse? = nil
     ) {
