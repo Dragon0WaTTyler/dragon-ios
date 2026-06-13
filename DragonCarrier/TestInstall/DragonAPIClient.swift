@@ -2,7 +2,7 @@ import Foundation
 
 let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
 let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
-let dragonBooksRemoteFallbackBaseURL = "https://dragon99.pythonanywhere.com"
+let dragonBooksRemoteRescueBaseURL = "https://dragon99.pythonanywhere.com"
 
 func normalizeDragonBackendBaseURL(_ rawValue: String) -> String? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -51,11 +51,7 @@ final class DragonAPIClient {
     }
 
     private func endpointURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
-        endpointURL(baseURL: backendBaseURL, path: path, queryItems: queryItems)
-    }
-
-    private func endpointURL(baseURL: String, path: String, queryItems: [URLQueryItem] = []) -> URL? {
-        guard var components = URLComponents(string: baseURL) else {
+        guard var components = URLComponents(string: backendBaseURL) else {
             return nil
         }
 
@@ -85,23 +81,7 @@ final class DragonAPIClient {
             queryItems.append(URLQueryItem(name: "q", value: query))
         }
 
-        do {
-            return try await fetchDecodable(DragonBooksResponse.self, path: "/api/v1/books", queryItems: queryItems)
-        } catch {
-            let normalizedBackendBaseURL = normalizeDragonBackendBaseURL(backendBaseURL)
-            let normalizedBooksFallbackBaseURL = normalizeDragonBackendBaseURL(dragonBooksRemoteFallbackBaseURL)
-
-            guard normalizedBackendBaseURL != normalizedBooksFallbackBaseURL,
-                  let fallbackURL = endpointURL(
-                    baseURL: dragonBooksRemoteFallbackBaseURL,
-                    path: "/api/v1/books",
-                    queryItems: queryItems
-                  ) else {
-                throw error
-            }
-
-            return try await fetchDecodable(DragonBooksResponse.self, url: fallbackURL)
-        }
+        return try await fetchDecodable(DragonBooksResponse.self, path: "/api/v1/books", queryItems: queryItems)
     }
 
     func fetchMovies(limit: Int = 20) async throws -> DragonAPIFetchResult<DragonMoviesResponse> {
@@ -191,15 +171,6 @@ final class DragonAPIClient {
         guard let url = endpointURL(path: path, queryItems: queryItems) else {
             throw DragonAPIError.invalidURL
         }
-
-        return try await fetchDecodable(responseType, url: url, allowsCaching: allowsCaching)
-    }
-
-    private func fetchDecodable<Response: Decodable>(
-        _ responseType: Response.Type,
-        url: URL,
-        allowsCaching: Bool = true
-    ) async throws -> DragonAPIFetchResult<Response> {
 
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 20)
         let decoder = JSONDecoder()

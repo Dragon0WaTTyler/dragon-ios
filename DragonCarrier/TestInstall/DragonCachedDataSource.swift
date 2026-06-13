@@ -3,10 +3,18 @@ import Foundation
 final class DragonCachedDataSource: DragonDataSource {
     private let remote: DragonDataSource
     private let snapshotStore: DragonSnapshotStore
+    private let booksRemoteRescue: DragonDataSource
 
-    init(remote: DragonDataSource, snapshotStore: DragonSnapshotStore = .shared) {
+    init(
+        remote: DragonDataSource,
+        snapshotStore: DragonSnapshotStore = .shared,
+        booksRemoteRescue: DragonDataSource = DragonRemoteDataSource(
+            apiClient: DragonAPIClient(baseURLProvider: { dragonBooksRemoteRescueBaseURL })
+        )
+    ) {
         self.remote = remote
         self.snapshotStore = snapshotStore
+        self.booksRemoteRescue = booksRemoteRescue
     }
 
     func fetchHome() async throws -> DragonAPIFetchResult<DragonHomeResponse> {
@@ -22,8 +30,24 @@ final class DragonCachedDataSource: DragonDataSource {
     }
 
     func fetchBooks(limit: Int, offset: Int, query: String?) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
-        try await fetchWithSnapshot(key: .books(limit: limit, offset: offset, query: query)) {
-            try await remote.fetchBooks(limit: limit, offset: offset, query: query)
+        let snapshotKey = DragonSnapshotCacheKey.books(limit: limit, offset: offset, query: query)
+
+        do {
+            let result = try await remote.fetchBooks(limit: limit, offset: offset, query: query)
+            await snapshotStore.save(result.value, for: snapshotKey)
+            return result
+        } catch {
+            if let cachedResult = await snapshotStore.load(DragonBooksResponse.self, for: snapshotKey) {
+                return cachedResult
+            }
+
+            guard shouldUseBooksRemoteRescue else {
+                throw error
+            }
+
+            let rescueResult = try await booksRemoteRescue.fetchBooks(limit: limit, offset: offset, query: query)
+            await snapshotStore.save(rescueResult.value, for: snapshotKey)
+            return rescueResult
         }
     }
 
@@ -65,5 +89,10 @@ final class DragonCachedDataSource: DragonDataSource {
             }
             throw error
         }
+    }
+
+    private var shouldUseBooksRemoteRescue: Bool {
+        normalizeDragonBackendBaseURL(currentDragonBackendBaseURL())
+            != normalizeDragonBackendBaseURL(dragonBooksRemoteRescueBaseURL)
     }
 }
