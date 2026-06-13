@@ -3,9 +3,10 @@ import Foundation
 enum DragonDataSourceFactory {
     #if DEBUG
     static let useMockDataSource = false
+    static let simulateRemoteFailure = false
     #endif
 
-    static let remoteDataSource: DragonDataSource = DragonCachedDataSource(remote: DragonRemoteDataSource.shared)
+    static let cachedRemoteDataSource: DragonDataSource = DragonCachedDataSource(remote: DragonRemoteDataSource.shared)
     static let mockDataSource: DragonDataSource = MockDragonDataSource()
 
     static var defaultDataSource: DragonDataSource {
@@ -13,8 +14,11 @@ enum DragonDataSourceFactory {
         if useMockDataSource {
             return mockDataSource
         }
+        if simulateRemoteFailure {
+            return DragonCachedDataSource(remote: DragonDebugFailingDataSource())
+        }
         #endif
 
-        return remoteDataSource
+        return cachedRemoteDataSource
     }
 }
