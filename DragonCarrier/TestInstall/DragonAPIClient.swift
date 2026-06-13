@@ -97,8 +97,13 @@ final class DragonAPIClient {
         return try JSONDecoder().decode(DragonArticlesResponse.self, from: data)
     }
 
-    func fetchBooks(limit: Int = 20) async throws -> DragonBooksResponse {
-        guard let url = endpointURL(path: "/api/v1/books", queryItems: [URLQueryItem(name: "limit", value: String(limit))]) else {
+    func fetchBooks(limit: Int = 50, offset: Int = 0) async throws -> DragonBooksResponse {
+        let queryItems = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset))
+        ]
+
+        guard let url = endpointURL(path: "/api/v1/books", queryItems: queryItems) else {
             throw DragonAPIError.invalidURL
         }
 
@@ -133,10 +138,11 @@ final class DragonAPIClient {
         return try JSONDecoder().decode(DragonMoviesResponse.self, from: data)
     }
 
-    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 20) async throws -> DragonYouTubeResponse {
+    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> DragonYouTubeResponse {
         var queryItems = [
             URLQueryItem(name: "source", value: source),
-            URLQueryItem(name: "limit", value: String(limit))
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset))
         ]
         if let section, !section.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryItems.append(URLQueryItem(name: "section", value: section))
@@ -159,10 +165,11 @@ final class DragonAPIClient {
         return try JSONDecoder().decode(DragonYouTubeResponse.self, from: data)
     }
 
-    func fetchYouTubeVideos(section: String, limit: Int = 50) async throws -> DragonYouTubeVideosResponse {
+    func fetchYouTubeVideos(section: String, limit: Int = 50, offset: Int = 0) async throws -> DragonYouTubeVideosResponse {
         let queryItems = [
             URLQueryItem(name: "section", value: section),
-            URLQueryItem(name: "limit", value: String(limit))
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset))
         ]
 
         guard let url = endpointURL(path: "/api/v1/youtube/videos", queryItems: queryItems) else {

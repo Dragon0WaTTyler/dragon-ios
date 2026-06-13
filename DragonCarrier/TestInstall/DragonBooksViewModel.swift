@@ -15,13 +15,14 @@ final class DragonBooksViewModel: ObservableObject {
     @Published private(set) var response: DragonBooksResponse?
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
+    @Published private(set) var isLoadingMore = false
 
     private let client: DragonAPIClient
     private let limit: Int
 
     init(
         client: DragonAPIClient = .shared,
-        limit: Int = 20,
+        limit: Int = 50,
         initialState: State = .idle,
         initialResponse: DragonBooksResponse? = nil
     ) {
@@ -42,11 +43,15 @@ final class DragonBooksViewModel: ObservableObject {
         return false
     }
 
+    var hasMore: Bool {
+        response?.has_more ?? false
+    }
+
     func loadBooks() async {
         state = .loading
 
         do {
-            let response = try await client.fetchBooks(limit: limit)
+            let response = try await client.fetchBooks(limit: limit, offset: 0)
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
@@ -55,14 +60,52 @@ final class DragonBooksViewModel: ObservableObject {
             self.response = response
             self.lastUpdatedAt = Date()
             self.refreshErrorText = nil
+            self.isLoadingMore = false
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
             handleFailure(dragonUserFacingMessage(for: error))
         }
     }
 
+    func loadMoreBooks() async {
+        guard !isLoading, !isLoadingMore, let response, response.has_more else {
+            return
+        }
+
+        isLoadingMore = true
+
+        do {
+            let nextOffset = response.next_offset ?? response.items.count
+            let nextPage = try await client.fetchBooks(limit: limit, offset: nextOffset)
+            guard nextPage.ok else {
+                handleLoadMoreFailure("Backend returned an error.")
+                return
+            }
+
+            let mergedItems = mergeBooks(existing: response.items, incoming: nextPage.items)
+            self.response = DragonBooksResponse(
+                api_version: nextPage.api_version,
+                ok: nextPage.ok,
+                items: mergedItems,
+                count: mergedItems.count,
+                total: nextPage.total,
+                limit: nextPage.limit,
+                offset: 0,
+                has_more: nextPage.has_more,
+                next_offset: nextPage.next_offset
+            )
+            self.refreshErrorText = nil
+            state = mergedItems.isEmpty ? .empty : .loaded
+        } catch {
+            handleLoadMoreFailure(dragonUserFacingMessage(for: error))
+        }
+
+        isLoadingMore = false
+    }
+
     private func handleFailure(_ message: String) {
         refreshErrorText = message
+        isLoadingMore = false
 
         guard let response else {
             state = .failed(message)
@@ -70,6 +113,26 @@ final class DragonBooksViewModel: ObservableObject {
         }
 
         state = response.items.isEmpty ? .empty : .loaded
+    }
+
+    private func handleLoadMoreFailure(_ message: String) {
+        refreshErrorText = message
+        isLoadingMore = false
+    }
+
+    private func mergeBooks(existing: [DragonBook], incoming: [DragonBook]) -> [DragonBook] {
+        var merged = existing
+        var seenIDs = Set(existing.map(\.id))
+
+        for book in incoming {
+            if seenIDs.contains(book.id) {
+                continue
+            }
+            seenIDs.insert(book.id)
+            merged.append(book)
+        }
+
+        return merged
     }
 }
 
@@ -101,6 +164,11 @@ extension DragonBooksResponse {
                 excerpt: "Preview-backed books keep the tab useful even when the backend is offline."
             )
         ],
-        count: 2
+        count: 2,
+        total: 2,
+        limit: 50,
+        offset: 0,
+        has_more: false,
+        next_offset: nil
     )
 }

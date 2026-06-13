@@ -230,6 +230,11 @@ struct DragonBooksResponse: Decodable {
     let ok: Bool
     let items: [DragonBook]
     let count: Int
+    let total: Int
+    let limit: Int
+    let offset: Int
+    let has_more: Bool
+    let next_offset: Int?
 
     private enum CodingKeys: String, CodingKey {
         case api_version
@@ -237,13 +242,33 @@ struct DragonBooksResponse: Decodable {
         case items
         case count
         case total
+        case limit
+        case offset
+        case has_more
+        case next_offset
     }
 
-    init(api_version: String, ok: Bool, items: [DragonBook], count: Int) {
+    init(
+        api_version: String,
+        ok: Bool,
+        items: [DragonBook],
+        count: Int,
+        total: Int? = nil,
+        limit: Int? = nil,
+        offset: Int = 0,
+        has_more: Bool? = nil,
+        next_offset: Int? = nil
+    ) {
         self.api_version = api_version
         self.ok = ok
         self.items = items
         self.count = count
+        self.total = total ?? count
+        self.limit = limit ?? count
+        self.offset = offset
+        let resolvedHasMore = has_more ?? ((offset + count) < (total ?? count))
+        self.has_more = resolvedHasMore
+        self.next_offset = next_offset ?? (resolvedHasMore ? offset + count : nil)
     }
 
     init(from decoder: Decoder) throws {
@@ -254,6 +279,14 @@ struct DragonBooksResponse: Decodable {
         self.count = try container.decodeIfPresent(Int.self, forKey: .count)
             ?? container.decodeIfPresent(Int.self, forKey: .total)
             ?? items.count
+        self.total = try container.decodeIfPresent(Int.self, forKey: .total) ?? count
+        self.limit = try container.decodeIfPresent(Int.self, forKey: .limit) ?? count
+        self.offset = try container.decodeIfPresent(Int.self, forKey: .offset) ?? 0
+        let decodedHasMore = try container.decodeIfPresent(Bool.self, forKey: .has_more)
+            ?? ((offset + count) < total)
+        self.has_more = decodedHasMore
+        self.next_offset = try container.decodeIfPresent(Int.self, forKey: .next_offset)
+            ?? (decodedHasMore ? offset + count : nil)
     }
 }
 
@@ -458,6 +491,11 @@ struct DragonYouTubeVideosResponse: Decodable {
     let section: String
     let items: [DragonYouTubeVideo]
     let count: Int
+    let total: Int
+    let limit: Int
+    let offset: Int
+    let has_more: Bool
+    let next_offset: Int?
 
     private enum CodingKeys: String, CodingKey {
         case api_version
@@ -465,14 +503,36 @@ struct DragonYouTubeVideosResponse: Decodable {
         case section
         case items
         case count
+        case total
+        case limit
+        case offset
+        case has_more
+        case next_offset
     }
 
-    init(api_version: String, ok: Bool, section: String, items: [DragonYouTubeVideo], count: Int) {
+    init(
+        api_version: String,
+        ok: Bool,
+        section: String,
+        items: [DragonYouTubeVideo],
+        count: Int,
+        total: Int? = nil,
+        limit: Int? = nil,
+        offset: Int = 0,
+        has_more: Bool? = nil,
+        next_offset: Int? = nil
+    ) {
         self.api_version = api_version
         self.ok = ok
         self.section = section
         self.items = items
         self.count = count
+        self.total = total ?? count
+        self.limit = limit ?? count
+        self.offset = offset
+        let resolvedHasMore = has_more ?? ((offset + count) < (total ?? count))
+        self.has_more = resolvedHasMore
+        self.next_offset = next_offset ?? (resolvedHasMore ? offset + count : nil)
     }
 
     init(from decoder: Decoder) throws {
@@ -482,6 +542,14 @@ struct DragonYouTubeVideosResponse: Decodable {
         self.section = DragonYouTubeVideosResponse.decodeString(container, keys: [.section])
         self.items = try container.decodeIfPresent([DragonYouTubeVideo].self, forKey: .items) ?? []
         self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? items.count
+        self.total = try container.decodeIfPresent(Int.self, forKey: .total) ?? count
+        self.limit = try container.decodeIfPresent(Int.self, forKey: .limit) ?? count
+        self.offset = try container.decodeIfPresent(Int.self, forKey: .offset) ?? 0
+        let decodedHasMore = try container.decodeIfPresent(Bool.self, forKey: .has_more)
+            ?? ((offset + count) < total)
+        self.has_more = decodedHasMore
+        self.next_offset = try container.decodeIfPresent(Int.self, forKey: .next_offset)
+            ?? (decodedHasMore ? offset + count : nil)
     }
 
     private static func decodeString(

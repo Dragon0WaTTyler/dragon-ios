@@ -21,12 +21,15 @@ struct DragonYouTubeBrowserView: View {
     @State private var videos: [DragonYouTubeVideo] = []
     @State private var sections: [DragonYouTubeSection] = []
     @State private var isLoadingVideos = false
+    @State private var isLoadingMoreVideos = false
     @State private var isLoadingSections = false
     @State private var videoErrorText: String?
     @State private var sectionErrorText: String?
     @State private var watchLaterLastUpdatedAt: Date?
     @State private var pocketTubeLastUpdatedAt: Date?
     @State private var didLoadSections = false
+    @State private var hasMoreVideos = false
+    @State private var nextVideoOffset: Int?
 
     private let limit = 50
 
@@ -119,7 +122,7 @@ struct DragonYouTubeBrowserView: View {
                             guard selectedPocketTubeSectionKey != chip.key else { return }
                             selectedPocketTubeSectionKey = chip.key
                             Task {
-                                await loadVideosForCurrentMode()
+                                await loadVideosForCurrentMode(reset: true)
                             }
                         } label: {
                             Text(chip.label)
@@ -148,7 +151,7 @@ struct DragonYouTubeBrowserView: View {
                 buttonTitle: "Try Again"
             ) {
                 await loadSectionsIfNeeded(forceReload: true)
-                await loadVideosForCurrentMode()
+                await loadVideosForCurrentMode(reset: true)
             }
         }
     }
@@ -165,17 +168,28 @@ struct DragonYouTubeBrowserView: View {
             ) {
                 await refreshCurrentMode(forceSectionsReload: selectedMode == .pocketTube)
             }
-        } else if filteredVideos.isEmpty {
-            NoMatchesView()
         } else {
-            LazyVStack(spacing: 12) {
-                ForEach(filteredVideos) { video in
-                    NavigationLink {
-                        YouTubeWatchView(video: video, videos: videos)
-                    } label: {
-                        YouTubeVideoRow(video: video)
+            if filteredVideos.isEmpty {
+                NoMatchesView()
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(filteredVideos) { video in
+                        NavigationLink {
+                            YouTubeWatchView(video: video, videos: videos)
+                        } label: {
+                            YouTubeVideoRow(video: video)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                }
+            }
+
+            if isLoadingMoreVideos || (!isLoadingVideos && hasMoreVideos) {
+                DragonLoadMoreCard(
+                    title: "Load More Videos",
+                    isLoading: isLoadingMoreVideos
+                ) {
+                    await loadMoreVideosForCurrentMode()
                 }
             }
         }
@@ -266,7 +280,7 @@ struct DragonYouTubeBrowserView: View {
         if selectedMode == .pocketTube {
             await loadSectionsIfNeeded(forceReload: false)
         }
-        await loadVideosForCurrentMode()
+        await loadVideosForCurrentMode(reset: true)
     }
 
     @MainActor
@@ -277,7 +291,7 @@ struct DragonYouTubeBrowserView: View {
                 selectedPocketTubeSectionKey = filterChips.dropFirst().first?.key
             }
         }
-        await loadVideosForCurrentMode()
+        await loadVideosForCurrentMode(reset: true)
     }
 
     @MainActor
@@ -285,7 +299,7 @@ struct DragonYouTubeBrowserView: View {
         if selectedMode == .pocketTube {
             await loadSectionsIfNeeded(forceReload: forceSectionsReload)
         }
-        await loadVideosForCurrentMode()
+        await loadVideosForCurrentMode(reset: true)
     }
 
     @MainActor
@@ -324,23 +338,30 @@ struct DragonYouTubeBrowserView: View {
     }
 
     @MainActor
-    private func loadVideosForCurrentMode() async {
+    private func loadVideosForCurrentMode(reset: Bool) async {
+        guard !isLoadingVideos else {
+            return
+        }
+
         isLoadingVideos = true
 
         do {
             let response: DragonYouTubeResponse
+            let offset = reset ? 0 : (nextVideoOffset ?? videos.count)
 
             switch selectedMode {
             case .watchLater:
                 response = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "watchlater",
-                    limit: limit
+                    limit: limit,
+                    offset: offset
                 )
             case .pocketTube:
                 response = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
-                    limit: limit
+                    limit: limit,
+                    offset: offset
                 )
             }
 
@@ -350,7 +371,13 @@ struct DragonYouTubeBrowserView: View {
                 return
             }
 
-            videos = response.items
+            if reset {
+                videos = response.items
+            } else {
+                videos = mergeVideos(existing: videos, incoming: response.items)
+            }
+            hasMoreVideos = response.has_more
+            nextVideoOffset = response.next_offset
             videoErrorText = nil
 
             switch selectedMode {
@@ -366,8 +393,75 @@ struct DragonYouTubeBrowserView: View {
         isLoadingVideos = false
     }
 
+    @MainActor
+    private func loadMoreVideosForCurrentMode() async {
+        guard !isLoadingVideos, !isLoadingMoreVideos, hasMoreVideos else {
+            return
+        }
+
+        isLoadingMoreVideos = true
+
+        do {
+            let response: DragonYouTubeResponse
+            let offset = nextVideoOffset ?? videos.count
+
+            switch selectedMode {
+            case .watchLater:
+                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                    source: "watchlater",
+                    limit: limit,
+                    offset: offset
+                )
+            case .pocketTube:
+                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                    source: "pockettube",
+                    section: selectedPocketTubeSectionKey,
+                    limit: limit,
+                    offset: offset
+                )
+            }
+
+            guard response.ok else {
+                handleVideoFailure("Backend returned an error.")
+                isLoadingMoreVideos = false
+                return
+            }
+
+            videos = mergeVideos(existing: videos, incoming: response.items)
+            hasMoreVideos = response.has_more
+            nextVideoOffset = response.next_offset
+            videoErrorText = nil
+        } catch {
+            handleVideoFailure(dragonUserFacingMessage(for: error))
+        }
+
+        isLoadingMoreVideos = false
+    }
+
     private func handleVideoFailure(_ message: String) {
         videoErrorText = message
+    }
+
+    private func mergeVideos(existing: [DragonYouTubeVideo], incoming: [DragonYouTubeVideo]) -> [DragonYouTubeVideo] {
+        var merged = existing
+        var seenIDs = Set(existing.map { videoKey($0) })
+
+        for video in incoming {
+            let key = videoKey(video)
+            if seenIDs.contains(key) {
+                continue
+            }
+            seenIDs.insert(key)
+            merged.append(video)
+        }
+
+        return merged
+    }
+
+    private func videoKey(_ video: DragonYouTubeVideo) -> String {
+        [video.id, video.video_id, video.url]
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            ?? UUID().uuidString
     }
 
     private func normalizedSectionKey(_ value: String) -> String {

@@ -104,6 +104,15 @@ struct DragonBooksView: View {
                                     }
                                 }
                             }
+
+                            if viewModel.isLoadingMore || (!viewModel.isLoading && viewModel.hasMore) {
+                                DragonLoadMoreCard(
+                                    title: "Load More Books",
+                                    isLoading: viewModel.isLoadingMore
+                                ) {
+                                    await viewModel.loadMoreBooks()
+                                }
+                            }
                         }
                     }
                     .padding(24)
@@ -142,6 +151,44 @@ struct DragonBooksView: View {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+}
+
+struct DragonLoadMoreCard: View {
+    let title: String
+    let isLoading: Bool
+    let action: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if isLoading {
+                ProgressView()
+                    .tint(DragonTheme.red)
+
+                Text("Loading more...")
+                    .font(.footnote)
+                    .foregroundStyle(.gray)
+            } else {
+                Button {
+                    Task {
+                        await action()
+                    }
+                } label: {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(DragonTheme.red)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
 

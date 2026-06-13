@@ -15,6 +15,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     @Published private(set) var response: DragonYouTubeVideosResponse?
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
+    @Published private(set) var isLoadingMore = false
 
     private let client: DragonAPIClient
     private let sectionKey: String
@@ -45,11 +46,15 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
         return false
     }
 
+    var hasMore: Bool {
+        response?.has_more ?? false
+    }
+
     func loadVideos() async {
         state = .loading
 
         do {
-            let response = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit)
+            let response = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: 0)
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
@@ -58,14 +63,53 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
             self.response = response
             self.lastUpdatedAt = Date()
             self.refreshErrorText = nil
+            self.isLoadingMore = false
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
             handleFailure(dragonUserFacingMessage(for: error))
         }
     }
 
+    func loadMoreVideos() async {
+        guard !isLoading, !isLoadingMore, let response, response.has_more else {
+            return
+        }
+
+        isLoadingMore = true
+
+        do {
+            let nextOffset = response.next_offset ?? response.items.count
+            let nextPage = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: nextOffset)
+            guard nextPage.ok else {
+                handleLoadMoreFailure("Backend returned an error.")
+                return
+            }
+
+            let mergedItems = mergeVideos(existing: response.items, incoming: nextPage.items)
+            self.response = DragonYouTubeVideosResponse(
+                api_version: nextPage.api_version,
+                ok: nextPage.ok,
+                section: nextPage.section,
+                items: mergedItems,
+                count: mergedItems.count,
+                total: nextPage.total,
+                limit: nextPage.limit,
+                offset: 0,
+                has_more: nextPage.has_more,
+                next_offset: nextPage.next_offset
+            )
+            self.refreshErrorText = nil
+            state = mergedItems.isEmpty ? .empty : .loaded
+        } catch {
+            handleLoadMoreFailure(dragonUserFacingMessage(for: error))
+        }
+
+        isLoadingMore = false
+    }
+
     private func handleFailure(_ message: String) {
         refreshErrorText = message
+        isLoadingMore = false
 
         guard let response else {
             state = .failed(message)
@@ -73,6 +117,32 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
         }
 
         state = response.items.isEmpty ? .empty : .loaded
+    }
+
+    private func handleLoadMoreFailure(_ message: String) {
+        refreshErrorText = message
+        isLoadingMore = false
+    }
+
+    private func mergeVideos(existing: [DragonYouTubeVideo], incoming: [DragonYouTubeVideo]) -> [DragonYouTubeVideo] {
+        var merged = existing
+        var seenIDs = Set(existing.map { videoKey($0) })
+
+        for video in incoming {
+            let key = videoKey(video)
+            if seenIDs.contains(key) {
+                continue
+            }
+            seenIDs.insert(key)
+            merged.append(video)
+        }
+
+        return merged
+    }
+
+    private func videoKey(_ video: DragonYouTubeVideo) -> String {
+        let candidates = [video.id, video.video_id, video.url]
+        return candidates.first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? UUID().uuidString
     }
 }
 
@@ -113,6 +183,11 @@ extension DragonYouTubeVideosResponse {
                 source: "pockettube"
             )
         ],
-        count: 2
+        count: 2,
+        total: 2,
+        limit: 50,
+        offset: 0,
+        has_more: false,
+        next_offset: nil
     )
 }
