@@ -17,6 +17,7 @@ final class DragonBooksViewModel: ObservableObject {
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var isLoadingMore = false
     @Published private(set) var searchQuery = ""
+    @Published private(set) var statusText: String?
 
     private let client: DragonAPIClient
     private let limit: Int
@@ -69,18 +70,20 @@ final class DragonBooksViewModel: ObservableObject {
         state = .loading
 
         do {
-            let response = try await client.fetchBooks(limit: limit, offset: 0, query: searchQuery)
+            let result = try await client.fetchBooks(limit: limit, offset: 0, query: searchQuery)
             guard requestID == requestGeneration else {
                 return
             }
+            let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
             }
 
             self.response = response
-            self.lastUpdatedAt = Date()
+            self.lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             self.refreshErrorText = nil
+            self.statusText = result.source.statusMessage
             self.isLoadingMore = false
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
@@ -100,7 +103,8 @@ final class DragonBooksViewModel: ObservableObject {
 
         do {
             let nextOffset = response.next_offset ?? response.items.count
-            let nextPage = try await client.fetchBooks(limit: limit, offset: nextOffset, query: searchQuery)
+            let nextPageResult = try await client.fetchBooks(limit: limit, offset: nextOffset, query: searchQuery)
+            let nextPage = nextPageResult.value
             guard nextPage.ok else {
                 handleLoadMoreFailure("Backend returned an error.")
                 return
@@ -118,7 +122,9 @@ final class DragonBooksViewModel: ObservableObject {
                 has_more: nextPage.has_more,
                 next_offset: nextPage.next_offset
             )
+            self.lastUpdatedAt = nextPageResult.source.cachedMetadata?.cachedAt ?? Date()
             self.refreshErrorText = nil
+            self.statusText = nextPageResult.source.statusMessage
             state = mergedItems.isEmpty ? .empty : .loaded
         } catch {
             handleLoadMoreFailure(dragonUserFacingMessage(for: error))
@@ -130,6 +136,7 @@ final class DragonBooksViewModel: ObservableObject {
     private func handleFailure(_ message: String) {
         refreshErrorText = message
         isLoadingMore = false
+        statusText = nil
 
         guard let response else {
             state = .failed(message)
@@ -142,6 +149,7 @@ final class DragonBooksViewModel: ObservableObject {
     private func handleLoadMoreFailure(_ message: String) {
         refreshErrorText = message
         isLoadingMore = false
+        statusText = nil
     }
 
     private func mergeBooks(existing: [DragonBook], incoming: [DragonBook]) -> [DragonBook] {

@@ -25,6 +25,8 @@ struct DragonYouTubeBrowserView: View {
     @State private var isLoadingSections = false
     @State private var videoErrorText: String?
     @State private var sectionErrorText: String?
+    @State private var videoStatusText: String?
+    @State private var sectionStatusText: String?
     @State private var watchLaterLastUpdatedAt: Date?
     @State private var pocketTubeLastUpdatedAt: Date?
     @State private var didLoadSections = false
@@ -59,7 +61,8 @@ struct DragonYouTubeBrowserView: View {
                             DragonRefreshStatusView(
                                 lastUpdatedAt: currentLastUpdatedAt,
                                 isRefreshing: isRefreshing,
-                                errorText: currentErrorText
+                                errorText: currentErrorText,
+                                statusText: currentStatusText
                             )
                         }
 
@@ -247,6 +250,15 @@ struct DragonYouTubeBrowserView: View {
         }
     }
 
+    private var currentStatusText: String? {
+        switch selectedMode {
+        case .watchLater:
+            return videoStatusText
+        case .pocketTube:
+            return videoStatusText ?? sectionStatusText
+        }
+    }
+
     private var isRefreshing: Bool {
         isLoadingVideos || (selectedMode == .pocketTube && isLoadingSections)
     }
@@ -315,15 +327,18 @@ struct DragonYouTubeBrowserView: View {
         isLoadingSections = true
 
         do {
-            let response = try await DragonAPIClient.shared.fetchYouTubeSections()
+            let result = try await DragonAPIClient.shared.fetchYouTubeSections()
+            let response = result.value
             guard response.ok else {
                 sectionErrorText = "Backend returned an error."
+                sectionStatusText = nil
                 isLoadingSections = false
                 return
             }
 
             sections = response.sections
             sectionErrorText = nil
+            sectionStatusText = result.source.statusMessage
             didLoadSections = true
 
             let availableSectionKeys = Set(filterChips.compactMap(\.key))
@@ -332,6 +347,7 @@ struct DragonYouTubeBrowserView: View {
             }
         } catch {
             sectionErrorText = dragonUserFacingMessage(for: error)
+            sectionStatusText = nil
         }
 
         isLoadingSections = false
@@ -355,17 +371,18 @@ struct DragonYouTubeBrowserView: View {
         do {
             let response: DragonYouTubeResponse
             let offset = reset ? 0 : (nextVideoOffset ?? videos.count)
+            let result: DragonAPIFetchResult<DragonYouTubeResponse>
 
             switch selectedMode {
             case .watchLater:
-                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "watchlater",
                     limit: limit,
                     offset: offset,
                     query: activeQuery
                 )
             case .pocketTube:
-                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
                     limit: limit,
@@ -373,6 +390,7 @@ struct DragonYouTubeBrowserView: View {
                     query: activeQuery
                 )
             }
+            response = result.value
 
             guard response.ok else {
                 handleVideoFailure("Backend returned an error.")
@@ -388,12 +406,13 @@ struct DragonYouTubeBrowserView: View {
             hasMoreVideos = response.has_more
             nextVideoOffset = response.next_offset
             videoErrorText = nil
+            videoStatusText = result.source.statusMessage
 
             switch selectedMode {
             case .watchLater:
-                watchLaterLastUpdatedAt = Date()
+                watchLaterLastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             case .pocketTube:
-                pocketTubeLastUpdatedAt = Date()
+                pocketTubeLastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             }
         } catch {
             handleVideoFailure(dragonUserFacingMessage(for: error))
@@ -417,17 +436,18 @@ struct DragonYouTubeBrowserView: View {
         do {
             let response: DragonYouTubeResponse
             let offset = nextVideoOffset ?? videos.count
+            let result: DragonAPIFetchResult<DragonYouTubeResponse>
 
             switch selectedMode {
             case .watchLater:
-                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "watchlater",
                     limit: limit,
                     offset: offset,
                     query: normalizedActiveSearchQuery
                 )
             case .pocketTube:
-                response = try await DragonAPIClient.shared.fetchYouTubeVideos(
+                result = try await DragonAPIClient.shared.fetchYouTubeVideos(
                     source: "pockettube",
                     section: selectedPocketTubeSectionKey,
                     limit: limit,
@@ -435,6 +455,7 @@ struct DragonYouTubeBrowserView: View {
                     query: normalizedActiveSearchQuery
                 )
             }
+            response = result.value
 
             guard response.ok else {
                 handleVideoFailure("Backend returned an error.")
@@ -446,6 +467,13 @@ struct DragonYouTubeBrowserView: View {
             hasMoreVideos = response.has_more
             nextVideoOffset = response.next_offset
             videoErrorText = nil
+            videoStatusText = result.source.statusMessage
+            switch selectedMode {
+            case .watchLater:
+                watchLaterLastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
+            case .pocketTube:
+                pocketTubeLastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
+            }
         } catch {
             handleVideoFailure(dragonUserFacingMessage(for: error))
         }
@@ -459,6 +487,7 @@ struct DragonYouTubeBrowserView: View {
 
     private func handleVideoFailure(_ message: String) {
         videoErrorText = message
+        videoStatusText = nil
     }
 
     private func mergeVideos(existing: [DragonYouTubeVideo], incoming: [DragonYouTubeVideo]) -> [DragonYouTubeVideo] {

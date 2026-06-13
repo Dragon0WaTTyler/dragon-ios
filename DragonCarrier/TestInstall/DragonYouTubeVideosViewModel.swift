@@ -16,6 +16,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var statusText: String?
 
     private let client: DragonAPIClient
     private let sectionKey: String
@@ -54,15 +55,17 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
         state = .loading
 
         do {
-            let response = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: 0)
+            let result = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: 0)
+            let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
             }
 
             self.response = response
-            self.lastUpdatedAt = Date()
+            self.lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             self.refreshErrorText = nil
+            self.statusText = result.source.statusMessage
             self.isLoadingMore = false
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
@@ -79,7 +82,8 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
 
         do {
             let nextOffset = response.next_offset ?? response.items.count
-            let nextPage = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: nextOffset)
+            let nextPageResult = try await client.fetchYouTubeVideos(section: sectionKey, limit: limit, offset: nextOffset)
+            let nextPage = nextPageResult.value
             guard nextPage.ok else {
                 handleLoadMoreFailure("Backend returned an error.")
                 return
@@ -98,7 +102,9 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
                 has_more: nextPage.has_more,
                 next_offset: nextPage.next_offset
             )
+            self.lastUpdatedAt = nextPageResult.source.cachedMetadata?.cachedAt ?? Date()
             self.refreshErrorText = nil
+            self.statusText = nextPageResult.source.statusMessage
             state = mergedItems.isEmpty ? .empty : .loaded
         } catch {
             handleLoadMoreFailure(dragonUserFacingMessage(for: error))
@@ -110,6 +116,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     private func handleFailure(_ message: String) {
         refreshErrorText = message
         isLoadingMore = false
+        statusText = nil
 
         guard let response else {
             state = .failed(message)
@@ -122,6 +129,7 @@ final class DragonYouTubeVideosViewModel: ObservableObject {
     private func handleLoadMoreFailure(_ message: String) {
         refreshErrorText = message
         isLoadingMore = false
+        statusText = nil
     }
 
     private func mergeVideos(existing: [DragonYouTubeVideo], incoming: [DragonYouTubeVideo]) -> [DragonYouTubeVideo] {

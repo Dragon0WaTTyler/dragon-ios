@@ -13,6 +13,9 @@ final class HomeViewModel: ObservableObject {
 
     @Published private(set) var state: State
     @Published private(set) var response: DragonHomeResponse?
+    @Published private(set) var lastUpdatedAt: Date?
+    @Published private(set) var refreshErrorText: String?
+    @Published private(set) var statusText: String?
 
     private let client: DragonHomeFetching
 
@@ -43,6 +46,9 @@ final class HomeViewModel: ObservableObject {
     }
 
     var errorText: String {
+        if let refreshErrorText {
+            return refreshErrorText
+        }
         if case .failed(let message) = state {
             return message
         }
@@ -60,15 +66,23 @@ final class HomeViewModel: ObservableObject {
         state = .loading
 
         do {
-            let response = try await client.fetchHome()
+            let result = try await client.fetchHome()
+            let response = result.value
             guard response.ok else {
+                refreshErrorText = "Backend returned an error."
+                statusText = nil
                 state = .failed("Backend returned an error.")
                 return
             }
 
             self.response = response
+            self.lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
+            self.refreshErrorText = nil
+            self.statusText = result.source.statusMessage
             state = .loaded
         } catch {
+            refreshErrorText = dragonUserFacingMessage(for: error)
+            statusText = nil
             state = .failed(dragonUserFacingMessage(for: error))
         }
     }
@@ -186,14 +200,13 @@ struct DragonHomeView: View {
                         }
                     }
 
-                    if !viewModel.errorText.isEmpty {
-                        Text(viewModel.errorText)
-                            .font(.footnote)
-                            .foregroundStyle(DragonTheme.red)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(DragonTheme.card)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    if viewModel.response != nil || viewModel.isLoading || !viewModel.errorText.isEmpty || viewModel.lastUpdatedAt != nil {
+                        DragonRefreshStatusView(
+                            lastUpdatedAt: viewModel.lastUpdatedAt,
+                            isRefreshing: viewModel.isLoading,
+                            errorText: viewModel.response == nil ? viewModel.errorText : viewModel.refreshErrorText,
+                            statusText: viewModel.statusText
+                        )
                     }
 
                     VStack(spacing: 12) {

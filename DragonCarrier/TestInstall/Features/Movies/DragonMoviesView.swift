@@ -6,6 +6,7 @@ struct DragonMoviesView: View {
     @State private var errorText = ""
     @State private var lastUpdatedAt: Date?
     @State private var searchText = ""
+    @State private var statusText: String?
 
     var body: some View {
         NavigationStack {
@@ -45,7 +46,8 @@ struct DragonMoviesView: View {
                             DragonRefreshStatusView(
                                 lastUpdatedAt: lastUpdatedAt,
                                 isRefreshing: isLoading,
-                                errorText: movies.isEmpty ? nil : errorText
+                                errorText: movies.isEmpty ? nil : errorText,
+                                statusText: statusText
                             )
                         }
 
@@ -112,12 +114,14 @@ struct DragonMoviesView: View {
         isLoading = true
 
         do {
-            let response = try await DragonAPIClient.shared.fetchMovies(limit: 20)
+            let result = try await DragonAPIClient.shared.fetchMovies(limit: 20)
+            let response = result.value
 
             if response.ok {
                 movies = response.items
-                lastUpdatedAt = Date()
+                lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
                 errorText = ""
+                statusText = result.source.statusMessage
             } else {
                 handleFailure("Backend returned an error.")
             }
@@ -130,6 +134,7 @@ struct DragonMoviesView: View {
 
     private func handleFailure(_ message: String) {
         errorText = message
+        statusText = nil
     }
 
     private var filteredMovies: [DragonMovie] {

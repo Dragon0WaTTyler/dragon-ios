@@ -50,7 +50,8 @@ struct DragonBooksView: View {
                             DragonRefreshStatusView(
                                 lastUpdatedAt: viewModel.lastUpdatedAt,
                                 isRefreshing: viewModel.isLoading,
-                                errorText: viewModel.refreshErrorText
+                                errorText: viewModel.refreshErrorText,
+                                statusText: viewModel.statusText
                             )
                         }
 

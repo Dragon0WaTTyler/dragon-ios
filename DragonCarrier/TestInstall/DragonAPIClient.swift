@@ -4,11 +4,11 @@ let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
 let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
 
 protocol DragonHomeFetching {
-    func fetchHome() async throws -> DragonHomeResponse
+    func fetchHome() async throws -> DragonAPIFetchResult<DragonHomeResponse>
 }
 
 protocol DragonArticlesFetching {
-    func fetchArticles(limit: Int) async throws -> DragonArticlesResponse
+    func fetchArticles(limit: Int) async throws -> DragonAPIFetchResult<DragonArticlesResponse>
 }
 
 func normalizeDragonBackendBaseURL(_ rawValue: String) -> String? {
@@ -38,6 +38,7 @@ final class DragonAPIClient {
 
     private let session: URLSession
     private let baseURLProvider: () -> String
+    private let responseCache: DragonResponseCache
 
     var backendBaseURL: String {
         baseURLProvider()
@@ -45,10 +46,12 @@ final class DragonAPIClient {
 
     init(
         session: URLSession = .shared,
-        baseURLProvider: @escaping () -> String = currentDragonBackendBaseURL
+        baseURLProvider: @escaping () -> String = currentDragonBackendBaseURL,
+        responseCache: DragonResponseCache = .shared
     ) {
         self.session = session
         self.baseURLProvider = baseURLProvider
+        self.responseCache = responseCache
     }
 
     private func endpointURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
@@ -61,43 +64,19 @@ final class DragonAPIClient {
         return components.url
     }
 
-    func fetchHome() async throws -> DragonHomeResponse {
-        guard let url = endpointURL(path: "/api/v1/home") else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonHomeResponse.self, from: data)
+    func fetchHome() async throws -> DragonAPIFetchResult<DragonHomeResponse> {
+        try await fetchDecodable(DragonHomeResponse.self, path: "/api/v1/home")
     }
 
-    func fetchArticles(limit: Int = 20) async throws -> DragonArticlesResponse {
-        guard let url = endpointURL(path: "/api/v1/articles", queryItems: [URLQueryItem(name: "limit", value: String(limit))]) else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonArticlesResponse.self, from: data)
+    func fetchArticles(limit: Int = 20) async throws -> DragonAPIFetchResult<DragonArticlesResponse> {
+        try await fetchDecodable(
+            DragonArticlesResponse.self,
+            path: "/api/v1/articles",
+            queryItems: [URLQueryItem(name: "limit", value: String(limit))]
+        )
     }
 
-    func fetchBooks(limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonBooksResponse {
+    func fetchBooks(limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
         var queryItems = [
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset))
@@ -106,42 +85,18 @@ final class DragonAPIClient {
             queryItems.append(URLQueryItem(name: "q", value: query))
         }
 
-        guard let url = endpointURL(path: "/api/v1/books", queryItems: queryItems) else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonBooksResponse.self, from: data)
+        return try await fetchDecodable(DragonBooksResponse.self, path: "/api/v1/books", queryItems: queryItems)
     }
 
-    func fetchMovies(limit: Int = 20) async throws -> DragonMoviesResponse {
-        guard let url = endpointURL(path: "/api/v1/movies", queryItems: [URLQueryItem(name: "limit", value: String(limit))]) else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonMoviesResponse.self, from: data)
+    func fetchMovies(limit: Int = 20) async throws -> DragonAPIFetchResult<DragonMoviesResponse> {
+        try await fetchDecodable(
+            DragonMoviesResponse.self,
+            path: "/api/v1/movies",
+            queryItems: [URLQueryItem(name: "limit", value: String(limit))]
+        )
     }
 
-    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonYouTubeResponse {
+    func fetchYouTubeVideos(source: String = "all", section: String? = nil, limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonAPIFetchResult<DragonYouTubeResponse> {
         var queryItems = [
             URLQueryItem(name: "source", value: source),
             URLQueryItem(name: "limit", value: String(limit)),
@@ -154,63 +109,21 @@ final class DragonAPIClient {
             queryItems.append(URLQueryItem(name: "q", value: query))
         }
 
-        guard let url = endpointURL(path: "/api/v1/youtube", queryItems: queryItems) else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonYouTubeResponse.self, from: data)
+        return try await fetchDecodable(DragonYouTubeResponse.self, path: "/api/v1/youtube", queryItems: queryItems)
     }
 
-    func fetchYouTubeVideos(section: String, limit: Int = 50, offset: Int = 0) async throws -> DragonYouTubeVideosResponse {
+    func fetchYouTubeVideos(section: String, limit: Int = 50, offset: Int = 0) async throws -> DragonAPIFetchResult<DragonYouTubeVideosResponse> {
         let queryItems = [
             URLQueryItem(name: "section", value: section),
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "offset", value: String(offset))
         ]
 
-        guard let url = endpointURL(path: "/api/v1/youtube/videos", queryItems: queryItems) else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonYouTubeVideosResponse.self, from: data)
+        return try await fetchDecodable(DragonYouTubeVideosResponse.self, path: "/api/v1/youtube/videos", queryItems: queryItems)
     }
 
-    func fetchYouTubeSections() async throws -> DragonYouTubeSectionsResponse {
-        guard let url = endpointURL(path: "/api/v1/youtube/sections") else {
-            throw DragonAPIError.invalidURL
-        }
-
-        let (data, response) = try await session.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DragonAPIError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw DragonAPIError.httpStatus(httpResponse.statusCode)
-        }
-
-        return try JSONDecoder().decode(DragonYouTubeSectionsResponse.self, from: data)
+    func fetchYouTubeSections() async throws -> DragonAPIFetchResult<DragonYouTubeSectionsResponse> {
+        try await fetchDecodable(DragonYouTubeSectionsResponse.self, path: "/api/v1/youtube/sections")
     }
 
     func testBackendConnection() async -> Result<Void, DragonAPIError> {
@@ -251,6 +164,53 @@ final class DragonAPIClient {
         }
 
         return true
+    }
+
+    private func fetchDecodable<Response: Decodable>(
+        _ responseType: Response.Type,
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        allowsCaching: Bool = true
+    ) async throws -> DragonAPIFetchResult<Response> {
+        guard let url = endpointURL(path: path, queryItems: queryItems) else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 20)
+        let decoder = JSONDecoder()
+
+        do {
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw DragonAPIError.invalidResponse
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw DragonAPIError.httpStatus(httpResponse.statusCode)
+            }
+
+            let decoded = try decoder.decode(Response.self, from: data)
+            if allowsCaching {
+                await responseCache.save(data: data, for: url)
+            }
+            return DragonAPIFetchResult(value: decoded, source: .network, resolvedURL: url)
+        } catch {
+            guard allowsCaching, let cachedResponse = await responseCache.load(for: url) else {
+                throw error
+            }
+
+            do {
+                let decoded = try decoder.decode(Response.self, from: cachedResponse.data)
+                return DragonAPIFetchResult(
+                    value: decoded,
+                    source: .cache(cachedResponse.metadata),
+                    resolvedURL: url
+                )
+            } catch {
+                throw error
+            }
+        }
     }
 }
 

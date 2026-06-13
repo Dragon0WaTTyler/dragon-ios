@@ -15,6 +15,7 @@ final class ArticlesViewModel: ObservableObject {
     @Published private(set) var response: DragonArticlesResponse?
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
+    @Published private(set) var statusText: String?
 
     private let client: DragonArticlesFetching
     private let limit: Int
@@ -46,15 +47,17 @@ final class ArticlesViewModel: ObservableObject {
         state = .loading
 
         do {
-            let response = try await client.fetchArticles(limit: limit)
+            let result = try await client.fetchArticles(limit: limit)
+            let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
             }
 
             self.response = response
-            self.lastUpdatedAt = Date()
+            self.lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             self.refreshErrorText = nil
+            self.statusText = result.source.statusMessage
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
             handleFailure(dragonUserFacingMessage(for: error))
@@ -63,6 +66,7 @@ final class ArticlesViewModel: ObservableObject {
 
     private func handleFailure(_ message: String) {
         refreshErrorText = message
+        statusText = nil
 
         guard let response else {
             state = .failed(message)

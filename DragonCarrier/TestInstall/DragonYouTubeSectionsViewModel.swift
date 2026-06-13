@@ -15,6 +15,7 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
     @Published private(set) var response: DragonYouTubeSectionsResponse?
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
+    @Published private(set) var statusText: String?
 
     private let client: DragonAPIClient
 
@@ -43,15 +44,17 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
         state = .loading
 
         do {
-            let response = try await client.fetchYouTubeSections()
+            let result = try await client.fetchYouTubeSections()
+            let response = result.value
             guard response.ok else {
                 handleFailure("Backend returned an error.")
                 return
             }
 
             self.response = response
-            self.lastUpdatedAt = Date()
+            self.lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
             self.refreshErrorText = nil
+            self.statusText = result.source.statusMessage
             state = response.sections.isEmpty ? .empty : .loaded
         } catch {
             handleFailure(dragonUserFacingMessage(for: error))
@@ -60,6 +63,7 @@ final class DragonYouTubeSectionsViewModel: ObservableObject {
 
     private func handleFailure(_ message: String) {
         refreshErrorText = message
+        statusText = nil
 
         guard let response else {
             state = .failed(message)

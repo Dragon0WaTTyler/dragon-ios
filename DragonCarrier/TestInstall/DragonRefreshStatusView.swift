@@ -5,6 +5,7 @@ struct DragonRefreshStatusView: View {
     let lastUpdatedAt: Date?
     let isRefreshing: Bool
     let errorText: String?
+    let statusText: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -24,6 +25,12 @@ struct DragonRefreshStatusView: View {
                 Text(errorText)
                     .font(.caption)
                     .foregroundStyle(DragonTheme.red)
+            }
+
+            if let statusText, !statusText.isEmpty {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
             }
         }
     }
