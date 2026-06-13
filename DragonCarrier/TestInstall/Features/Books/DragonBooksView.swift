@@ -373,6 +373,11 @@ struct BookDetailView: View {
         return book.author.isEmpty ? "Unknown author" : book.author
     }
 
+    private var excerptText: String {
+        let trimmed = book.excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "No description cached yet." : trimmed
+    }
+
     var body: some View {
         ZStack {
             DragonTheme.background.ignoresSafeArea()
@@ -399,9 +404,23 @@ struct BookDetailView: View {
                         }
                     }
 
-                    InfoBlock(title: "Year", value: book.year)
-                    InfoBlock(title: "Score", value: book.score)
-                    InfoBlock(title: "Excerpt", value: book.excerpt.isEmpty ? "No excerpt available." : book.excerpt)
+                    if !book.year.isEmpty {
+                        InfoBlock(title: "Year", value: book.year)
+                    }
+
+                    if !book.status.isEmpty {
+                        InfoBlock(title: "Status", value: book.status)
+                    }
+
+                    if !book.score.isEmpty {
+                        InfoBlock(title: "Score", value: book.score)
+                    }
+
+                    InfoBlock(
+                        title: "Description",
+                        value: excerptText,
+                        usesMutedFallback: book.excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
                 }
                 .padding(24)
                 .padding(.bottom, 90)
@@ -456,6 +475,7 @@ struct BookCoverView: View {
 struct InfoBlock: View {
     let title: String
     let value: String
+    var usesMutedFallback = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -465,7 +485,7 @@ struct InfoBlock: View {
 
             Text(value.isEmpty ? "Unavailable" : value)
                 .font(.body)
-                .foregroundStyle(.white)
+                .foregroundStyle(usesMutedFallback ? .gray : .white)
                 .lineSpacing(4)
         }
         .padding(16)
