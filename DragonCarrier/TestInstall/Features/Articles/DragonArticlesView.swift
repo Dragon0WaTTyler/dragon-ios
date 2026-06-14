@@ -160,34 +160,40 @@ struct ArticleRow: View {
     let article: DragonArticle
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(article.title.isEmpty ? "Untitled article" : article.title)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .lineLimit(2)
+        HStack(alignment: .top, spacing: 14) {
+            ArticleThumbnailView(url: article.displayImageURL)
 
-            HStack(spacing: 8) {
-                if !article.source.isEmpty {
-                    Text(article.source)
-                        .font(.caption)
-                        .foregroundStyle(DragonTheme.red)
-                        .lineLimit(1)
-                }
-
-                if let publishedDateText = article.publishedDisplayText {
-                    Text(publishedDateText)
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-                        .lineLimit(1)
-                }
-            }
-
-            if !article.excerpt.isEmpty {
-                Text(article.excerpt)
-                    .font(.subheadline)
-                    .foregroundStyle(.gray)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(article.title.isEmpty ? "Untitled article" : article.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
                     .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    if !article.source.isEmpty {
+                        Text(article.source)
+                            .font(.caption)
+                            .foregroundStyle(DragonTheme.red)
+                            .lineLimit(1)
+                    }
+
+                    if let publishedDateText = article.publishedDisplayText {
+                        Text(publishedDateText)
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                    }
+                }
+
+                if !article.excerpt.isEmpty {
+                    Text(article.excerpt)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .lineLimit(2)
+                }
             }
+
+            Spacer(minLength: 0)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -281,6 +287,10 @@ struct ArticleDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if let articleImageURL = article.displayImageURL {
+                        ArticleHeroImageView(url: articleImageURL)
+                    }
+
                     Text(article.title.isEmpty ? "Untitled article" : article.title)
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(.white)
@@ -387,6 +397,106 @@ struct ArticleDetailView: View {
         }
         .navigationTitle("Article")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct ArticleThumbnailView: View {
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure, .empty:
+                        placeholder
+                    @unknown default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "newspaper.fill")
+                .font(.title3)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
+private struct ArticleHeroImageView: View {
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure, .empty:
+                        placeholder
+                    @unknown default:
+                        placeholder
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 220)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+        )
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            Image(systemName: "newspaper.fill")
+                .font(.title)
+                .foregroundStyle(DragonTheme.red)
+        }
+    }
+}
+
+private extension DragonArticle {
+    var displayImageURL: URL? {
+        DragonArticle.sanitizedURL(thumbnail) ?? DragonArticle.sanitizedURL(image)
+    }
+
+    private static func sanitizedURL(_ rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        return url
     }
 }
 

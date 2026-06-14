@@ -147,6 +147,8 @@ struct DragonArticle: Codable, Identifiable {
     let published_at: String
     let saved_at: String
     let excerpt: String
+    let image: String
+    let thumbnail: String
     let status: String
     let read_state: String
 
@@ -159,6 +161,8 @@ struct DragonArticle: Codable, Identifiable {
         case published_at
         case saved_at
         case excerpt
+        case image
+        case thumbnail
         case summary
         case description
         case status
@@ -173,6 +177,8 @@ struct DragonArticle: Codable, Identifiable {
         published_at: String,
         saved_at: String,
         excerpt: String,
+        image: String = "",
+        thumbnail: String = "",
         status: String = "",
         read_state: String = ""
     ) {
@@ -183,6 +189,8 @@ struct DragonArticle: Codable, Identifiable {
         self.published_at = published_at
         self.saved_at = saved_at
         self.excerpt = excerpt
+        self.image = image
+        self.thumbnail = thumbnail
         self.status = status
         self.read_state = read_state
     }
@@ -196,6 +204,8 @@ struct DragonArticle: Codable, Identifiable {
         self.published_at = DragonArticle.decodeString(container, forKeys: [.published_at])
         self.saved_at = DragonArticle.decodeString(container, forKeys: [.saved_at])
         self.excerpt = DragonArticle.decodeString(container, forKeys: [.excerpt, .summary, .description])
+        self.image = DragonArticle.decodeString(container, forKeys: [.image])
+        self.thumbnail = DragonArticle.decodeString(container, forKeys: [.thumbnail])
         self.status = DragonArticle.decodeString(container, forKeys: [.status])
         self.read_state = DragonArticle.decodeString(container, forKeys: [.read_state])
     }
@@ -209,6 +219,8 @@ struct DragonArticle: Codable, Identifiable {
         try container.encode(published_at, forKey: .published_at)
         try container.encode(saved_at, forKey: .saved_at)
         try container.encode(excerpt, forKey: .excerpt)
+        try container.encode(image, forKey: .image)
+        try container.encode(thumbnail, forKey: .thumbnail)
         try container.encode(status, forKey: .status)
         try container.encode(read_state, forKey: .read_state)
     }
