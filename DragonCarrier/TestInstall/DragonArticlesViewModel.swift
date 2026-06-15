@@ -36,6 +36,10 @@ final class ArticlesViewModel: ObservableObject {
         response?.items ?? []
     }
 
+    var detailDataSource: DragonDataSource {
+        dataSource
+    }
+
     var isLoading: Bool {
         if case .loading = state {
             return true

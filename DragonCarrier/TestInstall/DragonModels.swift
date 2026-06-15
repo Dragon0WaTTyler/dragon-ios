@@ -139,6 +139,70 @@ struct DragonArticlesResponse: Codable {
     }
 }
 
+struct DragonArticleFulltextStatus: Codable, Equatable {
+    let status: String
+    let display_label: String
+    let display_message: String
+    let next_action: String
+    let safe_error: String
+
+    init(
+        status: String = "disabled",
+        display_label: String = "Unavailable",
+        display_message: String = "Full article loading is not available right now.",
+        next_action: String = "open_original",
+        safe_error: String = ""
+    ) {
+        self.status = status
+        self.display_label = display_label
+        self.display_message = display_message
+        self.next_action = next_action
+        self.safe_error = safe_error
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case display_label
+        case display_message
+        case next_action
+        case safe_error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.status = try container.decodeIfPresent(String.self, forKey: .status) ?? "disabled"
+        self.display_label = try container.decodeIfPresent(String.self, forKey: .display_label) ?? "Unavailable"
+        self.display_message = try container.decodeIfPresent(String.self, forKey: .display_message) ?? "Full article loading is not available right now."
+        self.next_action = try container.decodeIfPresent(String.self, forKey: .next_action) ?? "open_original"
+        self.safe_error = try container.decodeIfPresent(String.self, forKey: .safe_error) ?? ""
+    }
+}
+
+struct DragonArticleDetailResponse: Codable {
+    let api_version: String
+    let ok: Bool
+    let item: DragonArticle
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case item
+    }
+
+    init(api_version: String = "v1", ok: Bool, item: DragonArticle) {
+        self.api_version = api_version
+        self.ok = ok
+        self.item = item
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.item = try container.decode(DragonArticle.self, forKey: .item)
+    }
+}
+
 struct DragonArticle: Codable, Identifiable {
     let id: String
     let title: String
@@ -151,6 +215,9 @@ struct DragonArticle: Codable, Identifiable {
     let thumbnail: String
     let status: String
     let read_state: String
+    let fulltext_status: DragonArticleFulltextStatus
+    let content_text: String
+    let content_html: String
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -167,6 +234,9 @@ struct DragonArticle: Codable, Identifiable {
         case description
         case status
         case read_state
+        case fulltext_status
+        case content_text
+        case content_html
     }
 
     init(
@@ -180,7 +250,10 @@ struct DragonArticle: Codable, Identifiable {
         image: String = "",
         thumbnail: String = "",
         status: String = "",
-        read_state: String = ""
+        read_state: String = "",
+        fulltext_status: DragonArticleFulltextStatus = DragonArticleFulltextStatus(),
+        content_text: String = "",
+        content_html: String = ""
     ) {
         self.id = id
         self.title = title
@@ -193,6 +266,9 @@ struct DragonArticle: Codable, Identifiable {
         self.thumbnail = thumbnail
         self.status = status
         self.read_state = read_state
+        self.fulltext_status = fulltext_status
+        self.content_text = content_text
+        self.content_html = content_html
     }
 
     init(from decoder: Decoder) throws {
@@ -208,6 +284,9 @@ struct DragonArticle: Codable, Identifiable {
         self.thumbnail = DragonArticle.decodeString(container, forKeys: [.thumbnail])
         self.status = DragonArticle.decodeString(container, forKeys: [.status])
         self.read_state = DragonArticle.decodeString(container, forKeys: [.read_state])
+        self.fulltext_status = try container.decodeIfPresent(DragonArticleFulltextStatus.self, forKey: .fulltext_status) ?? DragonArticleFulltextStatus()
+        self.content_text = DragonArticle.decodeString(container, forKeys: [.content_text])
+        self.content_html = DragonArticle.decodeString(container, forKeys: [.content_html])
     }
 
     func encode(to encoder: Encoder) throws {
@@ -223,6 +302,9 @@ struct DragonArticle: Codable, Identifiable {
         try container.encode(thumbnail, forKey: .thumbnail)
         try container.encode(status, forKey: .status)
         try container.encode(read_state, forKey: .read_state)
+        try container.encode(fulltext_status, forKey: .fulltext_status)
+        try container.encode(content_text, forKey: .content_text)
+        try container.encode(content_html, forKey: .content_html)
     }
 
     private static func decodeString(

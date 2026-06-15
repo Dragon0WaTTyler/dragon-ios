@@ -6,6 +6,7 @@ protocol DragonHomeFetching {
 
 protocol DragonArticlesFetching {
     func fetchArticles(limit: Int) async throws -> DragonAPIFetchResult<DragonArticlesResponse>
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle>
 }
 
 protocol DragonBooksFetching {

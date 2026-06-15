@@ -8,6 +8,7 @@ struct DragonSnapshotRecord<Response: Codable>: Codable {
 enum DragonSnapshotCacheKey {
     case home
     case articles(limit: Int)
+    case articleDetail(id: String)
     case books(limit: Int, offset: Int, query: String?)
     case movies(limit: Int)
     case youTube(source: String, section: String?, limit: Int, offset: Int, query: String?)
@@ -20,6 +21,8 @@ enum DragonSnapshotCacheKey {
             return "home"
         case .articles(let limit):
             return "articles_limit_\(limit)"
+        case .articleDetail(let id):
+            return "article_detail_\(id)"
         case .books(let limit, let offset, let query):
             return "books_limit_\(limit)_offset_\(offset)_query_\(queryIdentifier(query))"
         case .movies(let limit):

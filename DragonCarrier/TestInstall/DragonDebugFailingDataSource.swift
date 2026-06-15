@@ -18,6 +18,10 @@ final class DragonDebugFailingDataSource: DragonDataSource {
         throw DragonDebugFailureError.simulatedRemoteFailure
     }
 
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        throw DragonDebugFailureError.simulatedRemoteFailure
+    }
+
     func fetchBooks(limit: Int, offset: Int, query: String?) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
         throw DragonDebugFailureError.simulatedRemoteFailure
     }

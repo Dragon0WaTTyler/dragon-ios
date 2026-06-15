@@ -26,6 +26,34 @@ final class MockDragonDataSource: DragonDataSource {
         return result(DragonArticlesResponse(api_version: "v1", ok: true, items: items, count: items.count))
     }
 
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        let article = mockArticles.first { $0.id == id } ?? mockArticles[0]
+        return result(
+            DragonArticle(
+                id: article.id,
+                title: article.title,
+                source: article.source,
+                url: article.url,
+                published_at: article.published_at,
+                saved_at: article.saved_at,
+                excerpt: article.excerpt,
+                image: article.image,
+                thumbnail: article.thumbnail,
+                status: article.status,
+                read_state: article.read_state,
+                fulltext_status: DragonArticleFulltextStatus(
+                    status: "disabled",
+                    display_label: "Unavailable",
+                    display_message: "Full article loading is not available right now.",
+                    next_action: "open_original",
+                    safe_error: ""
+                ),
+                content_text: "",
+                content_html: ""
+            )
+        )
+    }
+
     func fetchBooks(limit: Int, offset: Int, query: String?) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
         let filtered = filter(mockBooks, query: query) { book in
             [book.title, book.author, book.authors.joined(separator: " "), book.status, book.excerpt]

@@ -50,6 +50,10 @@ final class DragonNativeBooksDataSource: DragonDataSource {
         try await fallback.fetchArticles(limit: limit)
     }
 
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        try await fallback.fetchArticleDetail(id: id)
+    }
+
     func fetchMovies(limit: Int) async throws -> DragonAPIFetchResult<DragonMoviesResponse> {
         try await fallback.fetchMovies(limit: limit)
     }

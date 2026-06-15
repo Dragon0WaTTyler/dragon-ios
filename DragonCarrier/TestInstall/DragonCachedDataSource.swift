@@ -29,6 +29,12 @@ final class DragonCachedDataSource: DragonDataSource {
         }
     }
 
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        try await fetchWithSnapshot(key: .articleDetail(id: id)) {
+            try await remote.fetchArticleDetail(id: id)
+        }
+    }
+
     func fetchBooks(limit: Int, offset: Int, query: String?) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
         let snapshotKey = DragonSnapshotCacheKey.books(limit: limit, offset: offset, query: query)
 

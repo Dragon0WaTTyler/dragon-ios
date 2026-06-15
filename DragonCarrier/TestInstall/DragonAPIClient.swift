@@ -72,6 +72,34 @@ final class DragonAPIClient {
         )
     }
 
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedID.isEmpty else {
+            throw DragonAPIError.invalidURL
+        }
+
+        var allowedCharacters = CharacterSet.urlPathAllowed
+        allowedCharacters.remove(charactersIn: "/")
+        guard let encodedID = trimmedID.addingPercentEncoding(withAllowedCharacters: allowedCharacters) else {
+            throw DragonAPIError.invalidURL
+        }
+
+        let result = try await fetchDecodable(
+            DragonArticleDetailResponse.self,
+            path: "/api/v1/articles/\(encodedID)"
+        )
+
+        guard result.value.ok else {
+            throw DragonAPIError.invalidResponse
+        }
+
+        return DragonAPIFetchResult(
+            value: result.value.item,
+            source: result.source,
+            resolvedURL: result.resolvedURL
+        )
+    }
+
     func fetchBooks(limit: Int = 50, offset: Int = 0, query: String? = nil) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
         var queryItems = [
             URLQueryItem(name: "limit", value: String(limit)),

@@ -17,6 +17,10 @@ final class DragonRemoteDataSource: DragonDataSource {
         try await apiClient.fetchArticles(limit: limit)
     }
 
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        try await apiClient.fetchArticleDetail(id: id)
+    }
+
     func fetchBooks(limit: Int, offset: Int, query: String?) async throws -> DragonAPIFetchResult<DragonBooksResponse> {
         try await apiClient.fetchBooks(limit: limit, offset: offset, query: query)
     }

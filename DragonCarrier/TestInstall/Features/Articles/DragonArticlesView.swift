@@ -3,12 +3,15 @@ import SwiftUI
 struct DragonArticlesView: View {
     @StateObject private var viewModel: ArticlesViewModel
     @State private var searchText = ""
+    private let detailDataSource: DragonDataSource
 
     init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
+        self.detailDataSource = dataSource
         _viewModel = StateObject(wrappedValue: ArticlesViewModel(dataSource: dataSource))
     }
 
     init(viewModel: ArticlesViewModel) {
+        self.detailDataSource = viewModel.detailDataSource
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
@@ -97,7 +100,7 @@ struct DragonArticlesView: View {
                                 LazyVStack(spacing: 12) {
                                     ForEach(filteredArticles) { article in
                                         NavigationLink {
-                                            ArticleDetailView(article: article)
+                                            ArticleDetailView(article: article, dataSource: detailDataSource)
                                         } label: {
                                             ArticleRow(article: article)
                                         }
@@ -263,11 +266,15 @@ struct ArticleStateCard: View {
 }
 
 struct ArticleDetailView: View {
-    let article: DragonArticle
+    @StateObject private var viewModel: ArticleDetailViewModel
     @Environment(\.openURL) private var openURL
 
+    init(article: DragonArticle, dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
+        _viewModel = StateObject(wrappedValue: ArticleDetailViewModel(article: article, dataSource: dataSource))
+    }
+
     private var articleURL: URL? {
-        let text = article.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = viewModel.originalURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             return nil
         }
@@ -287,22 +294,22 @@ struct ArticleDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if let articleImageURL = article.displayImageURL {
+                    if let articleImageURL = viewModel.imageURL {
                         ArticleHeroImageView(url: articleImageURL)
                     }
 
-                    Text(article.title.isEmpty ? "Untitled article" : article.title)
+                    Text(viewModel.title)
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(.white)
 
-                    if !article.source.isEmpty {
-                        Text(article.source)
+                    if !viewModel.source.isEmpty {
+                        Text(viewModel.source)
                             .font(.headline)
                             .foregroundStyle(DragonTheme.red)
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        if let publishedDateText = article.publishedDisplayText {
+                        if let publishedDateText = viewModel.article.publishedDisplayText {
                             Text("Published")
                                 .font(.caption)
                                 .foregroundStyle(.gray)
@@ -312,12 +319,12 @@ struct ArticleDetailView: View {
                                 .foregroundStyle(.white)
                         }
 
-                        if !article.saved_at.isEmpty {
+                        if !viewModel.savedAt.isEmpty {
                             Text("Saved")
                                 .font(.caption)
                                 .foregroundStyle(.gray)
 
-                            Text(article.saved_at)
+                            Text(viewModel.savedAt)
                                 .font(.footnote.monospaced())
                                 .foregroundStyle(.white)
                         }
@@ -327,39 +334,81 @@ struct ArticleDetailView: View {
                     .background(DragonTheme.card)
                     .clipShape(RoundedRectangle(cornerRadius: 18))
 
+                    if viewModel.isLoading {
+                        ArticleDetailLoadingCard()
+                    }
+
+                    if let errorMessage = viewModel.errorMessage {
+                        ArticleDetailMessageCard(
+                            title: "Showing saved article preview",
+                            message: errorMessage
+                        )
+                    }
+
                     VStack(alignment: .leading, spacing: 10) {
-                        if !article.status.isEmpty || !article.read_state.isEmpty {
+                        if !viewModel.article.status.isEmpty || !viewModel.article.read_state.isEmpty {
                             Text("State")
                                 .font(.caption)
                                 .foregroundStyle(.gray)
 
-                            Text([article.status, article.read_state]
+                            Text([viewModel.article.status, viewModel.article.read_state]
                                 .filter { !$0.isEmpty }
                                 .joined(separator: " · "))
                                 .font(.footnote)
                                 .foregroundStyle(.white)
                         }
 
-                        Text("Excerpt")
+                        let hasCachedBody = !viewModel.contentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || !viewModel.contentHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                        Text(hasCachedBody ? "Reader" : "Excerpt")
                             .font(.caption)
                             .foregroundStyle(.gray)
 
-                        Text(article.excerpt.isEmpty ? "No excerpt available." : article.excerpt)
-                            .font(.body)
-                            .foregroundStyle(.white)
-                            .lineSpacing(4)
+                        ForEach(Array(viewModel.displayParagraphs.enumerated()), id: \.offset) { _, paragraph in
+                            Text(paragraph)
+                                .font(.body)
+                                .foregroundStyle(.white)
+                                .lineSpacing(4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(DragonTheme.card)
                     .clipShape(RoundedRectangle(cornerRadius: 18))
 
+                    if !viewModel.fulltextStatusLabel.isEmpty || !viewModel.fulltextStatusMessage.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if !viewModel.fulltextStatusLabel.isEmpty {
+                                Text(viewModel.fulltextStatusLabel)
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                            }
+
+                            if !viewModel.fulltextStatusMessage.isEmpty {
+                                Text(viewModel.fulltextStatusMessage)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.gray)
+                                    .lineSpacing(4)
+                            }
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DragonTheme.card)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                    }
+
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Original URL")
                             .font(.caption)
                             .foregroundStyle(.gray)
 
-                        Text(article.url.isEmpty ? "Unavailable" : article.url)
+                        Text(viewModel.originalURL.isEmpty ? "Unavailable" : viewModel.originalURL)
                             .font(.footnote.monospaced())
                             .foregroundStyle(articleURL == nil ? .gray : .white)
                             .textSelection(.enabled)
@@ -397,6 +446,51 @@ struct ArticleDetailView: View {
         }
         .navigationTitle("Article")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await viewModel.loadIfNeeded()
+        }
+    }
+}
+
+private struct ArticleDetailLoadingCard: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .tint(DragonTheme.red)
+
+            Text("Loading cached article details...")
+                .font(.footnote)
+                .foregroundStyle(.gray)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+private struct ArticleDetailMessageCard: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.gray)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.2), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
 
@@ -541,6 +635,9 @@ private extension DragonArticle {
 
 #Preview("Article Detail") {
     NavigationStack {
-        ArticleDetailView(article: DragonArticlesResponse.preview.items[0])
+        ArticleDetailView(
+            article: DragonArticlesResponse.preview.items[0],
+            dataSource: MockDragonDataSource()
+        )
     }
 }
