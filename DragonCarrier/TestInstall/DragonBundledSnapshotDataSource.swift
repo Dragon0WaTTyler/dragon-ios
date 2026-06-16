@@ -20,14 +20,14 @@ enum DragonBundledSnapshotError: LocalizedError {
 final class DragonBundledSnapshotDataSource: DragonDataSource {
     static let shared = DragonBundledSnapshotDataSource()
 
-    private struct LoadedSnapshot {
+    struct LoadedSnapshot {
         let snapshot: DragonCoreSnapshot
         let url: URL
     }
 
-    private let bundle: Bundle
-    private let fileManager: FileManager
-    private let snapshotFileName: String
+    private let responseSource: DragonResponseSource
+    private let serviceName: String
+    private let snapshotReader: () throws -> LoadedSnapshot
     private let lock = NSLock()
     private var cachedSnapshotResult: Result<LoadedSnapshot, Error>?
 
@@ -36,9 +36,29 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
         fileManager: FileManager = .default,
         snapshotFileName: String = "dragon_core_snapshot.json"
     ) {
-        self.bundle = bundle
-        self.fileManager = fileManager
-        self.snapshotFileName = snapshotFileName
+        self.responseSource = .bundledSnapshot
+        self.serviceName = "dragon-bundled-snapshot"
+        self.snapshotReader = {
+            try Self.loadBundledSnapshot(
+                bundle: bundle,
+                fileManager: fileManager,
+                snapshotFileName: snapshotFileName
+            )
+        }
+    }
+
+    init(
+        preloadedSnapshot: DragonCoreSnapshot,
+        resolvedURL: URL,
+        responseSource: DragonResponseSource,
+        serviceName: String
+    ) {
+        self.responseSource = responseSource
+        self.serviceName = serviceName
+        self.snapshotReader = {
+            LoadedSnapshot(snapshot: preloadedSnapshot, url: resolvedURL)
+        }
+        self.cachedSnapshotResult = .success(LoadedSnapshot(snapshot: preloadedSnapshot, url: resolvedURL))
     }
 
     func fetchHome() async throws -> DragonAPIFetchResult<DragonHomeResponse> {
@@ -142,7 +162,19 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
     }
 
     private func readSnapshot() throws -> LoadedSnapshot {
-        let snapshotURL = try resolveSnapshotURL()
+        try snapshotReader()
+    }
+
+    static func loadBundledSnapshot(
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default,
+        snapshotFileName: String = "dragon_core_snapshot.json"
+    ) throws -> LoadedSnapshot {
+        let snapshotURL = try resolveSnapshotURL(
+            bundle: bundle,
+            fileManager: fileManager,
+            snapshotFileName: snapshotFileName
+        )
 
         let data: Data
         do {
@@ -152,14 +184,20 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
         }
 
         do {
-            let snapshot = try JSONDecoder().decode(DragonCoreSnapshot.self, from: data)
+            let snapshot = try DragonCoreSnapshotValidator.validate(data: data, sourceURL: snapshotURL)
             return LoadedSnapshot(snapshot: snapshot, url: snapshotURL)
         } catch {
             throw DragonBundledSnapshotError.invalidSnapshot(snapshotURL)
         }
     }
 
-    private func resolveSnapshotURL() throws -> URL {
+    private static func resolveSnapshotURL(
+        bundle: Bundle,
+        fileManager: FileManager,
+        snapshotFileName: String
+    ) throws -> URL {
+        let snapshotBaseName = URL(fileURLWithPath: snapshotFileName).deletingPathExtension().lastPathComponent
+        let snapshotExtension = URL(fileURLWithPath: snapshotFileName).pathExtension
         let directMatches = [
             bundle.url(forResource: snapshotBaseName, withExtension: snapshotExtension),
             bundle.url(forResource: snapshotBaseName, withExtension: snapshotExtension, subdirectory: "Resources")
@@ -179,14 +217,6 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
         throw DragonBundledSnapshotError.missingSnapshotFile(snapshotFileName)
     }
 
-    private var snapshotBaseName: String {
-        URL(fileURLWithPath: snapshotFileName).deletingPathExtension().lastPathComponent
-    }
-
-    private var snapshotExtension: String {
-        URL(fileURLWithPath: snapshotFileName).pathExtension
-    }
-
     private func makeHomeResponse(from snapshot: DragonCoreSnapshot) -> DragonHomeResponse {
         let home = snapshot.home
         let sections = makeHomeSections(from: snapshot, seededSections: home?.sections ?? [])
@@ -197,7 +227,7 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
             ok: home?.ok ?? true,
             server_time: home?.server_time.nonEmptyValue ?? snapshot.generated_at,
             sections: sections,
-            service: "dragon-bundled-snapshot"
+            service: serviceName
         )
     }
 
@@ -365,7 +395,7 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
     }
 
     private func result<Response>(_ value: Response, url: URL) -> DragonAPIFetchResult<Response> {
-        DragonAPIFetchResult(value: value, source: .snapshot, resolvedURL: url)
+        DragonAPIFetchResult(value: value, source: responseSource, resolvedURL: url)
     }
 
     private func page<Item>(_ items: [Item], limit: Int, offset: Int) -> (items: [Item], hasMore: Bool, nextOffset: Int?) {

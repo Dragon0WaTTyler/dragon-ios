@@ -32,12 +32,17 @@ enum DragonResponseSource: Sendable {
     case network
     case cache(DragonCachedResponseMetadata)
     case snapshot
+    case remoteSnapshot
+    case cachedSnapshot(DragonCachedResponseMetadata)
+    case bundledSnapshot
 
     var cachedMetadata: DragonCachedResponseMetadata? {
-        guard case .cache(let metadata) = self else {
+        switch self {
+        case .cache(let metadata), .cachedSnapshot(let metadata):
+            return metadata
+        case .network, .snapshot, .remoteSnapshot, .bundledSnapshot:
             return nil
         }
-        return metadata
     }
 
     var statusMessage: String? {
@@ -48,6 +53,12 @@ enum DragonResponseSource: Sendable {
             return "Showing cached data."
         case .snapshot:
             return "Loaded from snapshot."
+        case .remoteSnapshot:
+            return "Loaded from remote Dragon snapshot."
+        case .cachedSnapshot:
+            return "Loaded from cached Dragon snapshot."
+        case .bundledSnapshot:
+            return "Loaded from bundled Dragon snapshot."
         }
     }
 }

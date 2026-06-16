@@ -290,8 +290,20 @@ func dragonUserFacingMessage(for error: Error) -> String {
         return dragonUserFacingMessage(for: apiError)
     }
 
+    if let snapshotValidationError = error as? DragonCoreSnapshotValidationError {
+        return dragonUserFacingMessage(for: snapshotValidationError)
+    }
+
+    if let remoteSnapshotError = error as? DragonRemoteSnapshotDataSourceError {
+        return remoteSnapshotError.errorDescription ?? "Could not load data."
+    }
+
     if let bundledSnapshotError = error as? DragonBundledSnapshotError {
         return dragonUserFacingMessage(for: bundledSnapshotError)
+    }
+
+    if let remoteSnapshotClientError = error as? DragonRemoteSnapshotClientError {
+        return dragonUserFacingMessage(for: remoteSnapshotClientError)
     }
 
     if let urlError = error as? URLError {
@@ -318,6 +330,22 @@ func dragonUserFacingMessage(for bundledSnapshotError: DragonBundledSnapshotErro
         return "Bundled snapshot could not be read."
     case .invalidSnapshot:
         return "Bundled snapshot is invalid."
+    }
+}
+
+func dragonUserFacingMessage(for validationError: DragonCoreSnapshotValidationError) -> String {
+    switch validationError {
+    case .fileTooSmall, .invalidJSON, .invalidRootObject, .invalidSchemaVersion, .missingTopLevelKey, .missingContainer, .forbiddenKey, .suspiciousValue, .undecodableSnapshot:
+        return "Dragon snapshot is invalid."
+    }
+}
+
+func dragonUserFacingMessage(for remoteSnapshotClientError: DragonRemoteSnapshotClientError) -> String {
+    switch remoteSnapshotClientError {
+    case .invalidHTTPResponse:
+        return "Remote Dragon snapshot replied unexpectedly."
+    case .httpStatus(let statusCode):
+        return dragonUserFacingMessage(forHTTPStatus: statusCode)
     }
 }
 

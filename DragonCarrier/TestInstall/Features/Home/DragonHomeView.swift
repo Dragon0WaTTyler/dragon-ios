@@ -241,6 +241,14 @@ struct DragonHomeView: View {
     }
 
     private var homeSourceText: String {
+        if viewModel.response?.service == "dragon-remote-snapshot" {
+            return "Native home from remote Dragon snapshot"
+        }
+
+        if viewModel.response?.service == "dragon-cached-snapshot" {
+            return "Native home from cached Dragon snapshot"
+        }
+
         if viewModel.response?.service == "dragon-bundled-snapshot" {
             return "Native home from bundled Dragon snapshot"
         }
