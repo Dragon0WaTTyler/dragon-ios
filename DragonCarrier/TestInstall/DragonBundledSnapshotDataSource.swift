@@ -417,16 +417,11 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
         }
 
         if normalizedSource == "watchlater" {
-            return candidateVideoSourceTerms(for: video).contains("watchlater")
-                || candidateVideoSourceTerms(for: video).contains("watch later")
+            return hasWatchLaterSignal(video)
         }
 
         if normalizedSource == "pockettube" {
-            if candidateVideoSourceTerms(for: video).contains("pockettube") {
-                return true
-            }
-
-            return videoSource == nil && !candidateVideoSourceTerms(for: video).contains("watchlater")
+            return hasPocketTubeSignal(video)
         }
 
         return false
@@ -457,6 +452,18 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
             [video.source, video.section, video.group, video.playlist]
                 .compactMap { $0.nonEmptyValue?.lowercased() }
         )
+    }
+
+    private func hasWatchLaterSignal(_ video: DragonYouTubeVideo) -> Bool {
+        let terms = candidateVideoSourceTerms(for: video)
+        return terms.contains("watchlater")
+            || terms.contains("watch later")
+            || terms.contains("watch_later")
+    }
+
+    private func hasPocketTubeSignal(_ video: DragonYouTubeVideo) -> Bool {
+        let videoSource = normalizedValue(video.source)
+        return videoSource == "pockettube"
     }
 
     private func normalizedValue(_ value: String?) -> String? {
