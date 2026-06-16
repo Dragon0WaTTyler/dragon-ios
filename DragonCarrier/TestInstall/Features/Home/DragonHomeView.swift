@@ -164,7 +164,7 @@ struct DragonHomeView: View {
                                 .font(.system(size: 42, weight: .bold))
                                 .foregroundStyle(.white)
 
-                            Text("Native home from /api/v1/home")
+                            Text(homeSourceText)
                                 .font(.headline)
                                 .foregroundStyle(.gray)
 
@@ -238,6 +238,14 @@ struct DragonHomeView: View {
                 await viewModel.loadHome()
             }
         }
+    }
+
+    private var homeSourceText: String {
+        if viewModel.response?.service == "dragon-bundled-snapshot" {
+            return "Native home from bundled Dragon snapshot"
+        }
+
+        return "Native home from /api/v1/home"
     }
 }
 

@@ -27,7 +27,7 @@ struct DragonMoviesView: View {
                                     .font(.system(size: 38, weight: .bold))
                                     .foregroundStyle(.white)
 
-                                Text("Lightweight cinema snapshot")
+                                Text("Movie metadata from Dragon snapshot")
                                     .font(.headline)
                                     .foregroundStyle(.gray)
                             }

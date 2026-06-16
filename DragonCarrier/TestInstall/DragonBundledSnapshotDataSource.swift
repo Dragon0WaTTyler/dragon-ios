@@ -197,7 +197,7 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
             ok: home?.ok ?? true,
             server_time: home?.server_time.nonEmptyValue ?? snapshot.generated_at,
             sections: sections,
-            service: home?.service.nonEmptyValue ?? "dragon-bundled-snapshot"
+            service: "dragon-bundled-snapshot"
         )
     }
 
@@ -293,9 +293,9 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
             status: article.status,
             read_state: article.read_state,
             fulltext_status: DragonArticleFulltextStatus(
-                status: "disabled",
-                display_label: "Unavailable",
-                display_message: "Bundled snapshot includes article metadata only.",
+                status: "snapshot_preview",
+                display_label: "Snapshot preview only",
+                display_message: "Full article body is not included in this bundled snapshot. Open original source.",
                 next_action: "open_original",
                 safe_error: ""
             ),
@@ -306,13 +306,13 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
 
     private func makeYouTubeSections(from snapshot: DragonCoreSnapshot) -> [DragonYouTubeSection] {
         let videos = youTubeVideos(from: snapshot)
-        let derivedCounts = Dictionary(grouping: videos) { primarySectionKey(for: $0).normalizedSnapshotKey }
+        let derivedCounts = Dictionary(grouping: videos) { primarySectionKey(for: $0).compactedSnapshotKey }
             .mapValues { $0.count }
 
         if let seededSections = snapshot.youtube?.sections, !seededSections.isEmpty {
             return seededSections.map { section in
                 let key = section.key.nonEmptyValue ?? section.label.nonEmptyValue ?? "unknown"
-                let count = derivedCounts[key.normalizedSnapshotKey] ?? section.count
+                let count = derivedCounts[key.compactedSnapshotKey] ?? section.count
                 return DragonYouTubeSection(
                     key: key,
                     label: section.label.nonEmptyValue ?? key,
@@ -330,7 +330,7 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
                 continue
             }
 
-            let normalizedKey = key.normalizedSnapshotKey
+            let normalizedKey = key.compactedSnapshotKey
             guard !seenKeys.contains(normalizedKey) else {
                 continue
             }
@@ -411,24 +411,23 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
             return true
         }
 
-        let videoSource = normalizedValue(video.source)
-        if videoSource == normalizedSource {
-            return true
+        switch videoSourceKind(for: video) {
+        case .watchLater:
+            return normalizedSource == "watchlater"
+        case .pocketTube:
+            return normalizedSource == "pockettube"
+        case .unknown:
+            let videoSource = normalizedValue(video.source)
+            return videoSource == normalizedSource
         }
-
-        if normalizedSource == "watchlater" {
-            return hasWatchLaterSignal(video)
-        }
-
-        if normalizedSource == "pockettube" {
-            return hasPocketTubeSignal(video)
-        }
-
-        return false
     }
 
     private func videoMatchesSection(_ video: DragonYouTubeVideo, section: String) -> Bool {
-        let normalizedSection = section.normalizedSnapshotKey
+        let normalizedSection = section.compactedSnapshotKey
+        if normalizedSection == "watchlater" {
+            return videoSourceKind(for: video) == .watchLater
+        }
+
         return candidateSectionTerms(for: video).contains(normalizedSection)
     }
 
@@ -442,28 +441,51 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
 
     private func candidateSectionTerms(for video: DragonYouTubeVideo) -> Set<String> {
         Set(
-            [video.section, video.group, video.playlist]
-                .compactMap { $0.nonEmptyValue?.normalizedSnapshotKey }
+            [video.source, video.section, video.group, video.playlist]
+                .compactMap { $0.nonEmptyValue?.compactedSnapshotKey }
         )
     }
 
     private func candidateVideoSourceTerms(for video: DragonYouTubeVideo) -> Set<String> {
         Set(
             [video.source, video.section, video.group, video.playlist]
-                .compactMap { $0.nonEmptyValue?.lowercased() }
+                .compactMap { $0.nonEmptyValue?.compactedSnapshotKey }
         )
     }
 
     private func hasWatchLaterSignal(_ video: DragonYouTubeVideo) -> Bool {
         let terms = candidateVideoSourceTerms(for: video)
-        return terms.contains("watchlater")
-            || terms.contains("watch later")
-            || terms.contains("watch_later")
+        return terms.contains(where: { $0.contains("watchlater") })
     }
 
     private func hasPocketTubeSignal(_ video: DragonYouTubeVideo) -> Bool {
-        let videoSource = normalizedValue(video.source)
-        return videoSource == "pockettube"
+        let terms = candidateVideoSourceTerms(for: video)
+        return terms.contains("pockettube")
+            || !candidateSectionTerms(for: video).isEmpty
+    }
+
+    private enum YouTubeSnapshotSourceKind {
+        case watchLater
+        case pocketTube
+        case unknown
+    }
+
+    private func videoSourceKind(for video: DragonYouTubeVideo) -> YouTubeSnapshotSourceKind {
+        if hasWatchLaterSignal(video) {
+            return .watchLater
+        }
+
+        if hasPocketTubeSignal(video) {
+            return .pocketTube
+        }
+
+        let hasAnySourceLikeData = [video.source, video.section, video.group, video.playlist]
+            .contains { !$0.nonEmptyValue.isNilOrEmpty }
+        if !hasAnySourceLikeData {
+            return .watchLater
+        }
+
+        return .unknown
     }
 
     private func normalizedValue(_ value: String?) -> String? {
@@ -480,8 +502,22 @@ private extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    var normalizedSnapshotKey: String {
+    var compactedSnapshotKey: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var isNilOrEmpty: Bool {
+        switch self {
+        case .some(let value):
+            return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .none:
+            return true
+        }
     }
 }
