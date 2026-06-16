@@ -290,6 +290,10 @@ func dragonUserFacingMessage(for error: Error) -> String {
         return dragonUserFacingMessage(for: apiError)
     }
 
+    if let bundledSnapshotError = error as? DragonBundledSnapshotError {
+        return dragonUserFacingMessage(for: bundledSnapshotError)
+    }
+
     if let urlError = error as? URLError {
         return dragonUserFacingMessage(for: urlError)
     }
@@ -304,6 +308,17 @@ func dragonUserFacingMessage(for error: Error) -> String {
     }
 
     return "Could not load data."
+}
+
+func dragonUserFacingMessage(for bundledSnapshotError: DragonBundledSnapshotError) -> String {
+    switch bundledSnapshotError {
+    case .missingSnapshotFile:
+        return "Bundled snapshot file is missing."
+    case .unreadableSnapshot:
+        return "Bundled snapshot could not be read."
+    case .invalidSnapshot:
+        return "Bundled snapshot is invalid."
+    }
 }
 
 func dragonUserFacingMessage(for apiError: DragonAPIError) -> String {
