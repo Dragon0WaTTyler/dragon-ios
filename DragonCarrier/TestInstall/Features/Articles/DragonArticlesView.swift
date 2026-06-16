@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct DragonArticlesView: View {
@@ -163,14 +164,18 @@ struct ArticleRow: View {
     let article: DragonArticle
 
     var body: some View {
+        let rowDirection = DragonTextDirection.forText([article.title, article.source, article.excerpt].joined(separator: " "))
+
         HStack(alignment: .top, spacing: 14) {
             ArticleThumbnailView(url: article.displayImageURL)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: rowDirection.horizontalAlignment, spacing: 8) {
                 Text(article.title.isEmpty ? "Untitled article" : article.title)
                     .font(.headline)
                     .foregroundStyle(.white)
                     .lineLimit(2)
+                    .environment(\.layoutDirection, DragonTextDirection.forText(article.title).layoutDirection)
+                    .multilineTextAlignment(DragonTextDirection.forText(article.title).alignment)
 
                 HStack(spacing: 8) {
                     if !article.source.isEmpty {
@@ -178,6 +183,8 @@ struct ArticleRow: View {
                             .font(.caption)
                             .foregroundStyle(DragonTheme.red)
                             .lineLimit(1)
+                            .environment(\.layoutDirection, DragonTextDirection.forText(article.source).layoutDirection)
+                            .multilineTextAlignment(DragonTextDirection.forText(article.source).alignment)
                     }
 
                     if let publishedDateText = article.publishedDisplayText {
@@ -193,6 +200,8 @@ struct ArticleRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.gray)
                         .lineLimit(2)
+                        .environment(\.layoutDirection, DragonTextDirection.forText(article.excerpt).layoutDirection)
+                        .multilineTextAlignment(DragonTextDirection.forText(article.excerpt).alignment)
                 }
             }
 
@@ -288,167 +297,221 @@ struct ArticleDetailView: View {
         return url
     }
 
+    private var detailDirection: DragonTextDirection {
+        DragonTextDirection.forText([viewModel.title, viewModel.source, viewModel.displayBodyText].joined(separator: " "))
+    }
+
+    private var titleDirection: DragonTextDirection {
+        DragonTextDirection.forText(viewModel.title)
+    }
+
+    private var sourceDirection: DragonTextDirection {
+        DragonTextDirection.forText(viewModel.source)
+    }
+
     var body: some View {
-        ZStack {
-            DragonTheme.background.ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if let articleImageURL = viewModel.imageURL {
-                        ArticleHeroImageView(url: articleImageURL)
-                    }
-
-                    Text(viewModel.title)
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(.white)
-
-                    if !viewModel.source.isEmpty {
-                        Text(viewModel.source)
-                            .font(.headline)
-                            .foregroundStyle(DragonTheme.red)
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let publishedDateText = viewModel.article.publishedDisplayText {
-                            Text("Published")
-                                .font(.caption)
-                                .foregroundStyle(.gray)
-
-                            Text(publishedDateText)
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(.white)
-                        }
-
-                        if !viewModel.savedAt.isEmpty {
-                            Text("Saved")
-                                .font(.caption)
-                                .foregroundStyle(.gray)
-
-                            Text(viewModel.savedAt)
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DragonTheme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                    if viewModel.isLoading {
-                        ArticleDetailLoadingCard()
-                    }
-
-                    if let errorMessage = viewModel.errorMessage {
-                        ArticleDetailMessageCard(
-                            title: "Showing saved article preview",
-                            message: errorMessage
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        if !viewModel.article.status.isEmpty || !viewModel.article.read_state.isEmpty {
-                            Text("State")
-                                .font(.caption)
-                                .foregroundStyle(.gray)
-
-                            Text([viewModel.article.status, viewModel.article.read_state]
-                                .filter { !$0.isEmpty }
-                                .joined(separator: " · "))
-                                .font(.footnote)
-                                .foregroundStyle(.white)
-                        }
-
-                        let hasCachedBody = !viewModel.contentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || !viewModel.contentHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-
-                        Text(hasCachedBody ? "Reader" : "Excerpt")
-                            .font(.caption)
-                            .foregroundStyle(.gray)
-
-                        ForEach(Array(viewModel.displayParagraphs.enumerated()), id: \.offset) { _, paragraph in
-                            Text(paragraph)
-                                .font(.body)
-                                .foregroundStyle(.white)
-                                .lineSpacing(4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DragonTheme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                    if !viewModel.fulltextStatusLabel.isEmpty || !viewModel.fulltextStatusMessage.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            if !viewModel.fulltextStatusLabel.isEmpty {
-                                Text(viewModel.fulltextStatusLabel)
-                                    .font(.headline)
-                                    .foregroundStyle(.white)
-                            }
-
-                            if !viewModel.fulltextStatusMessage.isEmpty {
-                                Text(viewModel.fulltextStatusMessage)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.gray)
-                                    .lineSpacing(4)
-                            }
-                        }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(DragonTheme.card)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Original URL")
-                            .font(.caption)
-                            .foregroundStyle(.gray)
-
-                        Text(viewModel.originalURL.isEmpty ? "Unavailable" : viewModel.originalURL)
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(articleURL == nil ? .gray : .white)
-                            .textSelection(.enabled)
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DragonTheme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                    Button {
-                        if let articleURL {
-                            openURL(articleURL)
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "safari")
-                            Text(articleURL == nil ? "Original Unavailable" : "Open Original")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(articleURL == nil ? DragonTheme.card : DragonTheme.red)
-                        .foregroundStyle(articleURL == nil ? .gray : .white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(DragonTheme.red.opacity(articleURL == nil ? 0.3 : 0.0), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
-                    .disabled(articleURL == nil)
-                }
-                .padding(24)
-                .padding(.bottom, 90)
-            }
-        }
+        contentView
         .navigationTitle("Article")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadIfNeeded()
         }
+    }
+
+    private var contentView: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: detailDirection.horizontalAlignment, spacing: 18) {
+                    articleImageView
+                    articleHeaderView
+                    articleDatesView
+                    articleLoadingView
+                    articleErrorView
+                    articleBodyView
+                    articleStatusView
+                    articleURLView
+                    openOriginalButton
+                }
+                .padding(24)
+                .padding(.bottom, 90)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var articleImageView: some View {
+        if let articleImageURL = viewModel.imageURL {
+            ArticleHeroImageView(url: articleImageURL)
+        }
+    }
+
+    private var articleHeaderView: some View {
+        VStack(alignment: detailDirection.horizontalAlignment, spacing: 8) {
+            Text(viewModel.title)
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(.white)
+                .environment(\.layoutDirection, titleDirection.layoutDirection)
+                .multilineTextAlignment(titleDirection.alignment)
+
+            if !viewModel.source.isEmpty {
+                Text(viewModel.source)
+                    .font(.headline)
+                    .foregroundStyle(DragonTheme.red)
+                    .environment(\.layoutDirection, sourceDirection.layoutDirection)
+                    .multilineTextAlignment(sourceDirection.alignment)
+            }
+        }
+    }
+
+    private var articleDatesView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let publishedDateText = viewModel.article.publishedDisplayText {
+                Text("Published")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                Text(publishedDateText)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.white)
+            }
+
+            if !viewModel.savedAt.isEmpty {
+                Text("Saved")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                Text(viewModel.savedAt)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder
+    private var articleLoadingView: some View {
+        if viewModel.isLoading {
+            ArticleDetailLoadingCard()
+        }
+    }
+
+    @ViewBuilder
+    private var articleErrorView: some View {
+        if let errorMessage = viewModel.errorMessage {
+            ArticleDetailMessageCard(
+                title: "Showing saved article preview",
+                message: errorMessage
+            )
+        }
+    }
+
+    private var articleBodyView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !viewModel.article.status.isEmpty || !viewModel.article.read_state.isEmpty {
+                Text("State")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                Text([viewModel.article.status, viewModel.article.read_state]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " · "))
+                    .font(.footnote)
+                    .foregroundStyle(.white)
+            }
+
+            Text(viewModel.hasCachedBody ? "Reader" : "Excerpt")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            ForEach(Array(viewModel.displayParagraphs.enumerated()), id: \.offset) { _, paragraph in
+                let paragraphDirection = DragonTextDirection.forText(paragraph)
+                Text(paragraph)
+                    .font(.body)
+                    .foregroundStyle(.white)
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: paragraphDirection.frameAlignment)
+                    .environment(\.layoutDirection, paragraphDirection.layoutDirection)
+                    .multilineTextAlignment(paragraphDirection.alignment)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder
+    private var articleStatusView: some View {
+        if !viewModel.fulltextStatusLabel.isEmpty || !viewModel.fulltextStatusMessage.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                if !viewModel.fulltextStatusLabel.isEmpty {
+                    Text(viewModel.fulltextStatusLabel)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+
+                if !viewModel.fulltextStatusMessage.isEmpty {
+                    Text(viewModel.fulltextStatusMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.gray)
+                        .lineSpacing(4)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DragonTheme.card)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+        }
+    }
+
+    private var articleURLView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Original URL")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            Text(viewModel.originalURL.isEmpty ? "Unavailable" : viewModel.originalURL)
+                .font(.footnote.monospaced())
+                .foregroundStyle(articleURL == nil ? .gray : .white)
+                .textSelection(.enabled)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var openOriginalButton: some View {
+        Button {
+            if let articleURL {
+                openURL(articleURL)
+            }
+        } label: {
+            HStack {
+                Image(systemName: "safari")
+                Text(articleURL == nil ? "Original Unavailable" : "Open Original")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(articleURL == nil ? DragonTheme.card : DragonTheme.red)
+            .foregroundStyle(articleURL == nil ? .gray : .white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(DragonTheme.red.opacity(articleURL == nil ? 0.3 : 0.0), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .disabled(articleURL == nil)
     }
 }
 
@@ -622,6 +685,113 @@ private extension DragonArticle {
         formatter.doesRelativeDateFormatting = true
         return formatter
     }()
+}
+
+private enum DragonTextDirection {
+    case leftToRight
+    case rightToLeft
+
+    static func forText(_ value: String) -> DragonTextDirection {
+        value.isLikelyRTL ? .rightToLeft : .leftToRight
+    }
+
+    var layoutDirection: LayoutDirection {
+        switch self {
+        case .leftToRight:
+            return .leftToRight
+        case .rightToLeft:
+            return .rightToLeft
+        }
+    }
+
+    var alignment: TextAlignment {
+        switch self {
+        case .leftToRight:
+            return .leading
+        case .rightToLeft:
+            return .trailing
+        }
+    }
+
+    var horizontalAlignment: HorizontalAlignment {
+        switch self {
+        case .leftToRight:
+            return .leading
+        case .rightToLeft:
+            return .trailing
+        }
+    }
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .leftToRight:
+            return .leading
+        case .rightToLeft:
+            return .trailing
+        }
+    }
+}
+
+private extension String {
+    var isLikelyRTL: Bool {
+        let scalars = unicodeScalars
+        var rtlCount = 0
+        var latinCount = 0
+        var letterCount = 0
+
+        for scalar in scalars {
+            if CharacterSet.letters.contains(scalar) {
+                letterCount += 1
+            }
+
+            if scalar.isArabicScript {
+                rtlCount += 1
+                continue
+            }
+
+            if scalar.isLatinScript {
+                latinCount += 1
+            }
+        }
+
+        guard rtlCount > 0, letterCount > 0 else {
+            return false
+        }
+
+        if latinCount == 0 {
+            return rtlCount >= max(2, letterCount / 4)
+        }
+
+        return rtlCount >= latinCount || rtlCount >= max(2, letterCount / 3)
+    }
+}
+
+private extension UnicodeScalar {
+    var isArabicScript: Bool {
+        switch value {
+        case 0x0600...0x06FF,
+             0x0750...0x077F,
+             0x08A0...0x08FF,
+             0xFB50...0xFDFF,
+             0xFE70...0xFEFF:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isLatinScript: Bool {
+        switch value {
+        case 0x0041...0x005A,
+             0x0061...0x007A,
+             0x00C0...0x00D6,
+             0x00D8...0x00F6,
+             0x00F8...0x00FF:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 #Preview("Articles") {

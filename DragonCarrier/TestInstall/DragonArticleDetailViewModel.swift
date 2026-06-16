@@ -89,6 +89,11 @@ final class ArticleDetailViewModel: ObservableObject {
         return article.excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    var hasCachedBody: Bool {
+        !contentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !contentHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var displayParagraphs: [String] {
         let content = displayBodyText
         guard !content.isEmpty else {
