@@ -1,17 +1,19 @@
 import SwiftUI
 
 struct DragonMoviesView: View {
-    @State private var movies: [DragonMovie] = []
-    @State private var isLoading = false
-    @State private var errorText = ""
-    @State private var lastUpdatedAt: Date?
+    @StateObject private var viewModel: DragonMoviesViewModel
     @State private var searchText = ""
-    @State private var statusText: String?
-
-    private let dataSource: DragonDataSource
 
     init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
-        self.dataSource = dataSource
+        _viewModel = StateObject(
+            wrappedValue: DragonMoviesViewModel(
+                dataSource: DragonDefaultMoviesDataSource(snapshotFallback: dataSource)
+            )
+        )
+    }
+
+    init(viewModel: DragonMoviesViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
     }
 
     var body: some View {
@@ -27,7 +29,7 @@ struct DragonMoviesView: View {
                                     .font(.system(size: 38, weight: .bold))
                                     .foregroundStyle(.white)
 
-                                Text("Movie metadata from Dragon snapshot")
+                                Text("Movie catalog diagnostics")
                                     .font(.headline)
                                     .foregroundStyle(.gray)
                             }
@@ -36,7 +38,7 @@ struct DragonMoviesView: View {
 
                             Button {
                                 Task {
-                                    await loadMovies()
+                                    await viewModel.loadMovies()
                                 }
                             } label: {
                                 Image(systemName: "arrow.clockwise")
@@ -48,16 +50,16 @@ struct DragonMoviesView: View {
                             }
                         }
 
-                        if isLoading || !movies.isEmpty || lastUpdatedAt != nil {
+                        if viewModel.isLoading || viewModel.hasVisibleContent || viewModel.lastUpdatedAt != nil || !viewModel.errorText.isEmpty {
                             DragonRefreshStatusView(
-                                lastUpdatedAt: lastUpdatedAt,
-                                isRefreshing: isLoading,
-                                errorText: movies.isEmpty ? nil : errorText,
-                                statusText: statusText
+                                lastUpdatedAt: viewModel.lastUpdatedAt,
+                                isRefreshing: viewModel.isLoading,
+                                errorText: viewModel.hasVisibleContent ? viewModel.errorText : nil,
+                                statusText: viewModel.statusText
                             )
                         }
 
-                        if isLoading && movies.isEmpty {
+                        if viewModel.isLoading && viewModel.movies.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 ProgressView()
                                     .tint(DragonTheme.red)
@@ -68,22 +70,22 @@ struct DragonMoviesView: View {
                             }
                         }
 
-                        if !errorText.isEmpty && movies.isEmpty {
+                        if !viewModel.errorText.isEmpty && viewModel.movies.isEmpty {
                             MoviesStateCard(
                                 title: "Could not load movies",
-                                message: errorText,
+                                message: viewModel.errorText,
                                 buttonTitle: "Try Again"
                             ) {
-                                await loadMovies()
+                                await viewModel.loadMovies()
                             }
                         } else if filteredMovies.isEmpty {
-                            if movies.isEmpty {
+                            if viewModel.movies.isEmpty {
                                 MoviesStateCard(
                                     title: "No movies found.",
                                     message: "Pull to refresh to check again.",
                                     buttonTitle: "Reload"
                                 ) {
-                                    await loadMovies()
+                                    await viewModel.loadMovies()
                                 }
                             } else {
                                 NoMatchesView()
@@ -108,48 +110,22 @@ struct DragonMoviesView: View {
         }
         .searchable(text: $searchText, prompt: "Search movies")
         .refreshable {
-            await loadMovies()
+            await viewModel.loadMovies()
         }
         .task {
-            await loadMovies()
-        }
-    }
-
-    @MainActor
-    private func loadMovies() async {
-        isLoading = true
-
-        do {
-            let result = try await dataSource.fetchMovies(limit: 20)
-            let response = result.value
-
-            if response.ok {
-                movies = response.items
-                lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
-                errorText = ""
-                statusText = result.source.statusMessage
-            } else {
-                handleFailure("Backend returned an error.")
+            if case .idle = viewModel.state {
+                await viewModel.loadMovies()
             }
-        } catch {
-            handleFailure(dragonUserFacingMessage(for: error))
         }
-
-        isLoading = false
-    }
-
-    private func handleFailure(_ message: String) {
-        errorText = message
-        statusText = nil
     }
 
     private var filteredMovies: [DragonMovie] {
         let query = normalizedSearchText(searchText)
         guard !query.isEmpty else {
-            return movies
+            return viewModel.movies
         }
 
-        return movies.filter { movie in
+        return viewModel.movies.filter { movie in
             [
                 movie.title,
                 movie.year,
@@ -210,19 +186,10 @@ struct MoviesStateCard: View {
 struct MovieRow: View {
     let movie: DragonMovie
 
-    private var posterURL: URL? {
-        let trimmed = movie.poster.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        return URL(string: trimmed)
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             Group {
-                if let posterURL {
+                if let posterURL = movie.posterURL {
                     AsyncImage(url: posterURL) { phase in
                         switch phase {
                         case .success(let image):

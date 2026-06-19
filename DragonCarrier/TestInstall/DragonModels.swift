@@ -543,6 +543,71 @@ struct DragonMoviesResponse: Codable {
     let ok: Bool
     let items: [DragonMovie]
     let count: Int
+    let total: Int
+    let limit: Int?
+    let offset: Int?
+    let has_more: Bool
+    let next_offset: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case items
+        case count
+        case total
+        case limit
+        case offset
+        case has_more
+        case next_offset
+    }
+
+    init(
+        api_version: String,
+        ok: Bool,
+        items: [DragonMovie],
+        count: Int,
+        total: Int? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil,
+        has_more: Bool? = nil,
+        next_offset: Int? = nil
+    ) {
+        self.api_version = api_version
+        self.ok = ok
+        self.items = items
+        self.count = count
+        self.total = total ?? count
+        self.limit = limit
+        self.offset = offset
+        self.has_more = has_more ?? false
+        self.next_offset = next_offset
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.items = try container.decodeIfPresent([DragonMovie].self, forKey: .items) ?? []
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? items.count
+        self.total = try container.decodeIfPresent(Int.self, forKey: .total) ?? count
+        self.limit = try container.decodeIfPresent(Int.self, forKey: .limit)
+        self.offset = try container.decodeIfPresent(Int.self, forKey: .offset)
+        self.has_more = try container.decodeIfPresent(Bool.self, forKey: .has_more) ?? false
+        self.next_offset = try container.decodeIfPresent(Int.self, forKey: .next_offset)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(api_version, forKey: .api_version)
+        try container.encode(ok, forKey: .ok)
+        try container.encode(items, forKey: .items)
+        try container.encode(count, forKey: .count)
+        try container.encode(total, forKey: .total)
+        try container.encodeIfPresent(limit, forKey: .limit)
+        try container.encodeIfPresent(offset, forKey: .offset)
+        try container.encode(has_more, forKey: .has_more)
+        try container.encodeIfPresent(next_offset, forKey: .next_offset)
+    }
 }
 
 struct DragonMovie: Codable, Identifiable {
@@ -589,6 +654,10 @@ struct DragonMovie: Codable, Identifiable {
         self.overview = DragonMovie.decodeString(container, forKey: .overview)
     }
 
+    var posterURL: URL? {
+        Self.sanitizedPosterURL(from: poster)
+    }
+
     private static func decodeString(_ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String {
         if let value = try? container.decode(String.self, forKey: key) {
             return value
@@ -610,6 +679,24 @@ struct DragonMovie: Codable, Identifiable {
         }
 
         return ""
+    }
+
+    private static func sanitizedPosterURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var components = URLComponents(string: trimmed) else {
+            return nil
+        }
+
+        let host = components.host?.lowercased() ?? ""
+        if (host == "www.themoviedb.org" || host == "themoviedb.org"),
+           components.path.hasPrefix("/t/p/") {
+            components.scheme = "https"
+            components.host = "image.tmdb.org"
+            components.query = nil
+            components.fragment = nil
+        }
+
+        return components.url
     }
 }
 

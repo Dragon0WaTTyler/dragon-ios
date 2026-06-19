@@ -3,15 +3,6 @@ import SwiftUI
 struct MovieDetailView: View {
     let movie: DragonMovie
 
-    private var posterURL: URL? {
-        let trimmed = movie.poster.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        return URL(string: trimmed)
-    }
-
     var body: some View {
         ZStack {
             DragonTheme.background.ignoresSafeArea()
@@ -19,7 +10,7 @@ struct MovieDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .top, spacing: 16) {
-                        MoviePosterView(url: posterURL, size: CGSize(width: 108, height: 162))
+                        MoviePosterView(url: movie.posterURL, size: CGSize(width: 108, height: 162))
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text(movie.title.isEmpty ? "Untitled movie" : movie.title)

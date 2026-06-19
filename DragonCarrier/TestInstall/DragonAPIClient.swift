@@ -113,10 +113,20 @@ final class DragonAPIClient {
     }
 
     func fetchMovies(limit: Int = 20) async throws -> DragonAPIFetchResult<DragonMoviesResponse> {
-        try await fetchDecodable(
+        try await fetchMovies(limit: limit, offset: 0)
+    }
+
+    func fetchMovies(limit: Int = 20, offset: Int = 0, allowsCaching: Bool = true) async throws -> DragonAPIFetchResult<DragonMoviesResponse> {
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if offset > 0 {
+            queryItems.append(URLQueryItem(name: "offset", value: String(offset)))
+        }
+
+        return try await fetchDecodable(
             DragonMoviesResponse.self,
             path: "/api/v1/movies",
-            queryItems: [URLQueryItem(name: "limit", value: String(limit))]
+            queryItems: queryItems,
+            allowsCaching: allowsCaching
         )
     }
 

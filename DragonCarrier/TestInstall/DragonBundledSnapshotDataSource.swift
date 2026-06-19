@@ -108,7 +108,7 @@ final class DragonBundledSnapshotDataSource: DragonDataSource {
 
     func fetchMovies(limit: Int) async throws -> DragonAPIFetchResult<DragonMoviesResponse> {
         let loadedSnapshot = try loadSnapshot()
-        let items = Array(movieItems(from: loadedSnapshot.snapshot).prefix(max(0, limit)))
+        let items = movieItems(from: loadedSnapshot.snapshot)
         let response = DragonMoviesResponse(api_version: "v1", ok: true, items: items, count: items.count)
         return result(response, url: loadedSnapshot.url)
     }
