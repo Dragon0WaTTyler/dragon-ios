@@ -5,7 +5,9 @@ struct DragonSettingsView: View {
     @State private var connectionState: DragonBackendConnectionState = .notTested
     @State private var isChecking = false
     @State private var lastCheckedAt: Date?
-    @State private var cacheItemCount: Int = 0
+    @State private var articleCacheCount: Int = 0
+    @State private var movieCacheCount: Int = 0
+    @State private var totalCacheCount: Int = 0
     @State private var cacheSizeBytes: Int64 = 0
     @State private var isRefreshingCacheInfo = false
     @State private var cacheStatusText: String?
@@ -72,11 +74,11 @@ struct DragonSettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Local cache")
+                            Text("Cache Debug")
                                 .font(.headline)
                                 .foregroundStyle(.white)
 
-                            Text("\(cacheItemCount) cached response\(cacheItemCount == 1 ? "" : "s")")
+                            Text("\(totalCacheCount) total cached response\(totalCacheCount == 1 ? "" : "s")")
                                 .font(.footnote)
                                 .foregroundStyle(.gray)
                         }
@@ -88,10 +90,30 @@ struct DragonSettingsView: View {
                             .foregroundStyle(.white)
                     }
 
+                    Text("Articles cache: \(articleCacheCount) • Movies cache: \(movieCacheCount)")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+
                     if let cacheStatusText, !cacheStatusText.isEmpty {
                         Text(cacheStatusText)
                             .font(.caption)
                             .foregroundStyle(.gray)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Clear Articles Cache") {
+                            Task {
+                                await clearCache(for: .articles)
+                            }
+                        }
+                        .buttonStyle(DragonOutlineButtonStyle())
+
+                        Button("Clear Movies Cache") {
+                            Task {
+                                await clearCache(for: .movies)
+                            }
+                        }
+                        .buttonStyle(DragonOutlineButtonStyle())
                     }
 
                     HStack(spacing: 12) {
@@ -115,9 +137,10 @@ struct DragonSettingsView: View {
                         Button {
                             showClearCacheConfirmation = true
                         } label: {
-                            Text("Clear local cache")
+                            Text("Clear All Cache")
                         }
-                        .buttonStyle(DragonOutlineButtonStyle())
+                        .buttonStyle(DragonFilledButtonStyle())
+                        .disabled(isRefreshingCacheInfo)
                     }
                 }
                 .padding(16)
@@ -159,10 +182,10 @@ struct DragonSettingsView: View {
                 backendURLDraft = settingsStore.backendURL
                 await refreshCacheInfo()
             }
-            .alert("Clear local cache?", isPresented: $showClearCacheConfirmation) {
+            .alert("Clear all cache?", isPresented: $showClearCacheConfirmation) {
                 Button("Clear", role: .destructive) {
                     Task {
-                        await clearLocalCache()
+                        await clearAllCache()
                     }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -195,10 +218,14 @@ struct DragonSettingsView: View {
         cacheStatusText = nil
 
         do {
+            let articles = try await responseCache.cacheItemCount(for: .articles)
+            let movies = try await responseCache.cacheItemCount(for: .movies)
             let count = try await responseCache.cacheItemCount()
             let sizeBytes = try await responseCache.cacheSizeBytes()
 
-            cacheItemCount = count
+            articleCacheCount = articles
+            movieCacheCount = movies
+            totalCacheCount = count
             cacheSizeBytes = sizeBytes
             cacheStatusText = nil
             isRefreshingCacheInfo = false
@@ -209,13 +236,34 @@ struct DragonSettingsView: View {
     }
 
     @MainActor
-    private func clearLocalCache() async {
+    private func clearCache(for domain: DragonResponseCacheDomain) async {
+        isRefreshingCacheInfo = true
+        cacheStatusText = nil
+
+        do {
+            try await responseCache.clear(domain: domain)
+            articleCacheCount = (try? await responseCache.cacheItemCount(for: .articles)) ?? 0
+            movieCacheCount = (try? await responseCache.cacheItemCount(for: .movies)) ?? 0
+            totalCacheCount = (try? await responseCache.cacheItemCount()) ?? 0
+            cacheSizeBytes = (try? await responseCache.cacheSizeBytes()) ?? 0
+            cacheStatusText = "\(domain.rawValue.capitalized) cache cleared."
+            isRefreshingCacheInfo = false
+        } catch {
+            cacheStatusText = "Could not clear \(domain.rawValue) cache."
+            isRefreshingCacheInfo = false
+        }
+    }
+
+    @MainActor
+    private func clearAllCache() async {
         isRefreshingCacheInfo = true
         cacheStatusText = nil
 
         do {
             try await responseCache.clearAll()
-            cacheItemCount = (try? await responseCache.cacheItemCount()) ?? 0
+            articleCacheCount = (try? await responseCache.cacheItemCount(for: .articles)) ?? 0
+            movieCacheCount = (try? await responseCache.cacheItemCount(for: .movies)) ?? 0
+            totalCacheCount = (try? await responseCache.cacheItemCount()) ?? 0
             cacheSizeBytes = (try? await responseCache.cacheSizeBytes()) ?? 0
             cacheStatusText = "Local cache cleared."
             isRefreshingCacheInfo = false

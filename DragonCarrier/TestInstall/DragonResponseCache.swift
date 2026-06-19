@@ -28,6 +28,11 @@ struct DragonCachedResponse: Sendable {
     let metadata: DragonCachedResponseMetadata
 }
 
+enum DragonResponseCacheDomain: String, CaseIterable, Sendable {
+    case articles
+    case movies
+}
+
 enum DragonResponseSource: Sendable {
     case network
     case cache(DragonCachedResponseMetadata)
@@ -124,46 +129,73 @@ actor DragonResponseCache {
     }
 
     func cacheItemCount() throws -> Int {
+        try allCacheRecordURLs().count
+    }
+
+    func cacheItemCount(for domain: DragonResponseCacheDomain) throws -> Int {
+        try filteredCacheRecordURLs(for: domain).count
+    }
+
+    func cacheSizeBytes() throws -> Int64 {
+        try cacheSizeBytes(for: nil)
+    }
+
+    func cacheSizeBytes(for domain: DragonResponseCacheDomain) throws -> Int64 {
+        try cacheSizeBytes(for: Optional(domain))
+    }
+
+    func clearAll() throws {
+        for url in try allCacheRecordURLs() {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    func clear(domain: DragonResponseCacheDomain) throws {
+        for url in try filteredCacheRecordURLs(for: domain) {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private func allCacheRecordURLs() throws -> [URL] {
         let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
-        let urls = try fileManager.contentsOfDirectory(
+        guard fileManager.fileExists(atPath: directoryURL.path) else {
+            return []
+        }
+
+        return try fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )
-        return urls.filter { $0.pathExtension.lowercased() == "json" }.count
+        .filter { $0.pathExtension.lowercased() == "json" }
     }
 
-    func cacheSizeBytes() throws -> Int64 {
-        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
-        let urls = try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        )
+    private func filteredCacheRecordURLs(for domain: DragonResponseCacheDomain) throws -> [URL] {
+        try allCacheRecordURLs().filter { url in
+            guard let recordData = try? Data(contentsOf: url),
+                  let record = try? decoder.decode(DragonCachedResponseRecord.self, from: recordData),
+                  let cachedURL = URL(string: record.metadata.url) else {
+                return false
+            }
+
+            return cachedURL.scheme == "dragon-cache" && cachedURL.host?.lowercased() == domain.rawValue
+        }
+    }
+
+    private func cacheSizeBytes(for domain: DragonResponseCacheDomain?) throws -> Int64 {
+        let urls: [URL]
+        if let domain {
+            urls = try filteredCacheRecordURLs(for: domain)
+        } else {
+            urls = try allCacheRecordURLs()
+        }
 
         var total: Int64 = 0
-        for url in urls where url.pathExtension.lowercased() == "json" {
+        for url in urls {
             let values = try url.resourceValues(forKeys: [.fileSizeKey])
             total += Int64(values.fileSize ?? 0)
         }
         return total
-    }
-
-    func clearAll() throws {
-        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
-        guard fileManager.fileExists(atPath: directoryURL.path) else {
-            return
-        }
-
-        let urls = try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        for url in urls where url.pathExtension.lowercased() == "json" {
-            try fileManager.removeItem(at: url)
-        }
     }
 
     private func cacheDirectoryURL(createIfNeeded: Bool = true) throws -> URL {
