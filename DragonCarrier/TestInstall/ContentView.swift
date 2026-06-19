@@ -14,6 +14,11 @@ struct ContentView: View {
                     Label("Home", systemImage: "house.fill")
                 }
 
+            DragonTVView()
+                .tabItem {
+                    Label("TV", systemImage: "tv.fill")
+                }
+
             DragonArticlesView(dataSource: dataSource)
                 .tabItem {
                     Label("Articles", systemImage: "newspaper.fill")

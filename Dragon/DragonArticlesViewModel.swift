@@ -17,6 +17,7 @@ final class ArticlesViewModel: ObservableObject {
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var statusText: String?
     @Published private(set) var refreshPhase: DragonArticlesRefreshPhase
+    @Published private(set) var sourceLabel: String
 
     private let dataSource: DragonArticlesDataSource
     private let limit: Int
@@ -32,6 +33,7 @@ final class ArticlesViewModel: ObservableObject {
         self.state = initialState
         self.response = initialResponse
         self.refreshPhase = initialResponse?.items.isEmpty == false ? .refreshed : .idle
+        self.sourceLabel = initialResponse?.items.isEmpty == false ? "Direct RSS" : "Empty"
     }
 
     var articles: [DragonArticle] {
@@ -51,11 +53,17 @@ final class ArticlesViewModel: ObservableObject {
         if let cachedResult = await dataSource.loadCachedArticles(limit: limit) {
             response = cachedResult.response
             lastUpdatedAt = cachedResult.cachedAt
-            statusText = "Showing cached articles while refreshing."
+            sourceLabel = "Cache"
+            statusText = statusLine(
+                sourceLabel: "Cache",
+                count: cachedResult.response.items.count,
+                detail: cachedResult.source == .directRSS ? "Direct RSS cache" : "API fallback cache"
+            )
             refreshPhase = cachedResult.response.items.isEmpty ? .empty : .cached
             state = .loading
         } else {
-            statusText = "Refreshing articles..."
+            sourceLabel = "Empty"
+            statusText = statusLine(sourceLabel: "Refreshing", count: 0)
             refreshPhase = .refreshing
             state = .loading
         }
@@ -71,7 +79,11 @@ final class ArticlesViewModel: ObservableObject {
             self.response = response
             self.lastUpdatedAt = result.refreshedAt
             self.refreshErrorText = nil
-            self.statusText = result.source.refreshedStatusText
+            self.sourceLabel = result.source == .directRSS ? "Direct RSS" : "API fallback"
+            self.statusText = statusLine(
+                sourceLabel: sourceLabel,
+                count: response.items.count
+            )
             self.refreshPhase = response.items.isEmpty ? .empty : .refreshed
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
@@ -84,14 +96,27 @@ final class ArticlesViewModel: ObservableObject {
 
         guard let response else {
             statusText = nil
+            sourceLabel = "Empty"
             refreshPhase = .idle
             state = .failed(message)
             return
         }
 
-        statusText = response.items.isEmpty ? nil : "Showing cached articles."
+        sourceLabel = response.items.isEmpty ? "Empty" : "Cache"
+        statusText = response.items.isEmpty ? nil : statusLine(
+            sourceLabel: "Cache",
+            count: response.items.count
+        )
         refreshPhase = response.items.isEmpty ? .empty : .failedUsingCache
         state = response.items.isEmpty ? .empty : .loaded
+    }
+
+    private func statusLine(sourceLabel: String, count: Int, detail: String? = nil) -> String {
+        let articleLabel = count == 1 ? "article" : "articles"
+        if let detail, !detail.isEmpty {
+            return "Source: \(sourceLabel) • \(count) \(articleLabel) • \(detail)"
+        }
+        return "Source: \(sourceLabel) • \(count) \(articleLabel)"
     }
 }
 

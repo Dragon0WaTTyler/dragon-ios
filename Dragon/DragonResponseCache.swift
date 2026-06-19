@@ -28,6 +28,11 @@ struct DragonCachedResponse: Sendable {
     let metadata: DragonCachedResponseMetadata
 }
 
+enum DragonResponseCacheDomain: String, CaseIterable, Sendable {
+    case articles
+    case movies
+}
+
 actor DragonResponseCache {
     static let shared = DragonResponseCache()
 
@@ -83,44 +88,29 @@ actor DragonResponseCache {
     }
 
     func cacheItemCount() throws -> Int {
-        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
-        let urls = try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        return urls.filter { $0.pathExtension.lowercased() == "json" }.count
+        try allCacheRecordURLs().count
+    }
+
+    func cacheItemCount(for domain: DragonResponseCacheDomain) throws -> Int {
+        try filteredCacheRecordURLs(for: domain).count
     }
 
     func cacheSizeBytes() throws -> Int64 {
-        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
-        let urls = try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        )
+        try cacheSizeBytes(for: nil)
+    }
 
-        var total: Int64 = 0
-        for url in urls where url.pathExtension.lowercased() == "json" {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey])
-            total += Int64(values.fileSize ?? 0)
-        }
-        return total
+    func cacheSizeBytes(for domain: DragonResponseCacheDomain) throws -> Int64 {
+        try cacheSizeBytes(for: Optional(domain))
     }
 
     func clearAll() throws {
-        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
-        guard fileManager.fileExists(atPath: directoryURL.path) else {
-            return
+        for url in try allCacheRecordURLs() {
+            try fileManager.removeItem(at: url)
         }
+    }
 
-        let urls = try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        for url in urls where url.pathExtension.lowercased() == "json" {
+    func clear(domain: DragonResponseCacheDomain) throws {
+        for url in try filteredCacheRecordURLs(for: domain) {
             try fileManager.removeItem(at: url)
         }
     }
@@ -144,5 +134,42 @@ actor DragonResponseCache {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
         let hash = digest.map { String(format: "%02x", $0) }.joined()
         return "\(hash).json"
+    }
+
+    private func allCacheRecordURLs() throws -> [URL] {
+        let directoryURL = try cacheDirectoryURL(createIfNeeded: false)
+        guard fileManager.fileExists(atPath: directoryURL.path) else {
+            return []
+        }
+
+        return try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        .filter { $0.pathExtension.lowercased() == "json" }
+    }
+
+    private func filteredCacheRecordURLs(for domain: DragonResponseCacheDomain) throws -> [URL] {
+        try allCacheRecordURLs().filter { url in
+            guard let recordData = try? Data(contentsOf: url),
+                  let record = try? decoder.decode(DragonCachedResponseRecord.self, from: recordData),
+                  let cachedURL = URL(string: record.metadata.url) else {
+                return false
+            }
+
+            return cachedURL.scheme == "dragon-cache" && cachedURL.host?.lowercased() == domain.rawValue
+        }
+    }
+
+    private func cacheSizeBytes(for domain: DragonResponseCacheDomain?) throws -> Int64 {
+        let urls = try domain.map(filteredCacheRecordURLs(for:)) ?? allCacheRecordURLs()
+
+        var total: Int64 = 0
+        for url in urls {
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            total += Int64(values.fileSize ?? 0)
+        }
+        return total
     }
 }

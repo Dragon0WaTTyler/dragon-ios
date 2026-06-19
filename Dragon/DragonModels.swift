@@ -398,7 +398,7 @@ struct DragonBook: Decodable, Identifiable {
     }
 }
 
-struct DragonMoviesResponse: Decodable {
+struct DragonMoviesResponse: Codable {
     let api_version: String
     let ok: Bool
     let items: [DragonMovie]
@@ -455,9 +455,22 @@ struct DragonMoviesResponse: Decodable {
         self.has_more = try container.decodeIfPresent(Bool.self, forKey: .has_more) ?? false
         self.next_offset = try container.decodeIfPresent(Int.self, forKey: .next_offset)
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(api_version, forKey: .api_version)
+        try container.encode(ok, forKey: .ok)
+        try container.encode(items, forKey: .items)
+        try container.encode(count, forKey: .count)
+        try container.encode(total, forKey: .total)
+        try container.encodeIfPresent(limit, forKey: .limit)
+        try container.encodeIfPresent(offset, forKey: .offset)
+        try container.encode(has_more, forKey: .has_more)
+        try container.encodeIfPresent(next_offset, forKey: .next_offset)
+    }
 }
 
-struct DragonMovie: Decodable, Identifiable {
+struct DragonMovie: Codable, Identifiable {
     let id: String
     let title: String
     let year: String
@@ -582,6 +595,24 @@ struct DragonMovie: Decodable, Identifiable {
         self.detailURLString = decodedDetailURL
         self.progressValue = decodedProgressValue
         self.progressText = decodedProgressText
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(year, forKey: .year)
+        try container.encode(poster, forKey: .poster)
+        try container.encode(status, forKey: .status)
+        try container.encode(score, forKey: .score)
+        try container.encode(type, forKey: .type)
+        try container.encode(overview, forKey: .overview)
+        try container.encodeIfPresent(backdrop, forKey: .backdrop)
+        try container.encode(genres, forKey: .genres)
+        try container.encodeIfPresent(runtime, forKey: .runtime)
+        try container.encodeIfPresent(detailURLString, forKey: .detail_url)
+        try container.encodeIfPresent(progressValue, forKey: .progress)
+        try container.encodeIfPresent(progressText, forKey: .watch_progress)
     }
 
     var displayTitle: String {
