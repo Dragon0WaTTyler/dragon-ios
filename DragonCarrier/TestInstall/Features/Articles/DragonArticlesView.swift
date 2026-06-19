@@ -8,7 +8,12 @@ struct DragonArticlesView: View {
 
     init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
         self.detailDataSource = dataSource
-        _viewModel = StateObject(wrappedValue: ArticlesViewModel(dataSource: dataSource))
+        _viewModel = StateObject(
+            wrappedValue: ArticlesViewModel(
+                dataSource: DragonDefaultArticlesDataSource(),
+                detailDataSource: dataSource
+            )
+        )
     }
 
     init(viewModel: ArticlesViewModel) {
@@ -50,7 +55,7 @@ struct DragonArticlesView: View {
                             }
                         }
 
-                        if viewModel.response != nil {
+                        if viewModel.response != nil || viewModel.isLoading || viewModel.refreshErrorText != nil {
                             DragonRefreshStatusView(
                                 lastUpdatedAt: viewModel.lastUpdatedAt,
                                 isRefreshing: viewModel.isLoading,

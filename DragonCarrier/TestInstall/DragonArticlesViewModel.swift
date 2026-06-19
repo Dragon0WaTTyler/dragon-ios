@@ -16,20 +16,27 @@ final class ArticlesViewModel: ObservableObject {
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
     @Published private(set) var statusText: String?
+    @Published private(set) var refreshPhase: DragonArticlesRefreshPhase
+    @Published private(set) var sourceLabel: String
 
-    private let dataSource: DragonDataSource
+    private let dataSource: DragonArticlesDataSource
+    private let detailDataSourceProvider: DragonDataSource
     private let limit: Int
 
     init(
-        dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
+        dataSource: DragonArticlesDataSource = DragonDefaultArticlesDataSource(),
+        detailDataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
         limit: Int = 20,
         initialState: State = .idle,
         initialResponse: DragonArticlesResponse? = nil
     ) {
         self.dataSource = dataSource
+        self.detailDataSourceProvider = detailDataSource
         self.limit = limit
         self.state = initialState
         self.response = initialResponse
+        self.refreshPhase = initialResponse?.items.isEmpty == false ? .refreshed : .idle
+        self.sourceLabel = initialResponse?.items.isEmpty == false ? DragonArticlesRefreshSource.directRSS.liveDisplayLabel : "Empty"
     }
 
     var articles: [DragonArticle] {
@@ -37,7 +44,7 @@ final class ArticlesViewModel: ObservableObject {
     }
 
     var detailDataSource: DragonDataSource {
-        dataSource
+        detailDataSourceProvider
     }
 
     var isLoading: Bool {
@@ -48,36 +55,74 @@ final class ArticlesViewModel: ObservableObject {
     }
 
     func loadArticles() async {
-        state = .loading
+        refreshErrorText = nil
+
+        if let cachedResult = await dataSource.loadCachedArticles(limit: limit) {
+            response = cachedResult.response
+            lastUpdatedAt = cachedResult.cachedAt
+            sourceLabel = cachedResult.source.cacheDisplayLabel
+            statusText = statusLine(sourceLabel: sourceLabel, count: cachedResult.response.items.count)
+            refreshPhase = cachedResult.response.items.isEmpty ? .empty : .cached
+            state = .loading
+        } else {
+            sourceLabel = "Empty"
+            statusText = statusLine(sourceLabel: sourceLabel, count: 0, detail: "Refreshing")
+            refreshPhase = .refreshing
+            state = .loading
+        }
 
         do {
-            let result = try await dataSource.fetchArticles(limit: limit)
-            let response = result.value
+            let result = try await dataSource.refreshArticles(limit: limit)
+            let response = result.response
             guard response.ok else {
-                handleFailure("Backend returned an error.")
+                handleFailure("Dragon API responded but ok=false")
                 return
             }
 
             self.response = response
-            self.lastUpdatedAt = result.source.cachedMetadata?.cachedAt ?? Date()
+            self.lastUpdatedAt = result.refreshedAt
             self.refreshErrorText = nil
-            self.statusText = result.source.statusMessage
+            self.sourceLabel = result.source.liveDisplayLabel
+            self.statusText = statusLine(sourceLabel: sourceLabel, count: response.items.count)
+            self.refreshPhase = response.items.isEmpty ? .empty : .refreshed
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
-            handleFailure(dragonUserFacingMessage(for: error))
+            handleFailure(error.localizedDescription)
         }
     }
 
     private func handleFailure(_ message: String) {
         refreshErrorText = message
-        statusText = nil
 
         guard let response else {
+            statusText = nil
+            sourceLabel = "Empty"
+            refreshPhase = .idle
             state = .failed(message)
             return
         }
 
-        state = response.items.isEmpty ? .empty : .loaded
+        if response.items.isEmpty {
+            sourceLabel = "Empty"
+            statusText = nil
+            refreshPhase = .empty
+            state = .empty
+            return
+        }
+
+        if statusText == nil || statusText?.isEmpty == true {
+            statusText = statusLine(sourceLabel: sourceLabel, count: response.items.count)
+        }
+        refreshPhase = .failedUsingCache
+        state = .loaded
+    }
+
+    private func statusLine(sourceLabel: String, count: Int, detail: String? = nil) -> String {
+        let articleLabel = count == 1 ? "article" : "articles"
+        if let detail, !detail.isEmpty {
+            return "Source: \(sourceLabel) • \(count) \(articleLabel) • \(detail)"
+        }
+        return "Source: \(sourceLabel) • \(count) \(articleLabel)"
     }
 }
 
