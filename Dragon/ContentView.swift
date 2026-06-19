@@ -5,40 +5,78 @@ import SwiftUI
 // MARK: - App Root
 
 struct ContentView: View {
+    @State private var selectedTab = DragonRootTab.initialTabFromEnvironment
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             DragonHomeView()
+                .tag(DragonRootTab.home)
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
                 }
 
             DragonArticlesView()
+                .tag(DragonRootTab.articles)
                 .tabItem {
                     Label("Articles", systemImage: "newspaper.fill")
                 }
 
             DragonBooksView()
+                .tag(DragonRootTab.books)
                 .tabItem {
                     Label("Books", systemImage: "book.closed.fill")
                 }
 
             DragonYouTubeView()
+                .tag(DragonRootTab.youtube)
                 .tabItem {
                     Label("YouTube", systemImage: "play.rectangle.fill")
                 }
 
             DragonMoviesView()
+                .tag(DragonRootTab.movies)
                 .tabItem {
                     Label("Movies", systemImage: "film.fill")
                 }
 
             DragonSettingsView()
+                .tag(DragonRootTab.settings)
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
         }
         .tint(DragonTheme.red)
         .preferredColorScheme(.dark)
+    }
+}
+
+private enum DragonRootTab: Hashable {
+    case home
+    case articles
+    case books
+    case youtube
+    case movies
+    case settings
+
+    static var initialTabFromEnvironment: DragonRootTab {
+        let rawValue = ProcessInfo.processInfo.environment["DRAGON_START_TAB"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch rawValue {
+        case "articles":
+            return .articles
+        case "books":
+            return .books
+        case "youtube":
+            return .youtube
+        case "movies":
+            return .movies
+        case "settings":
+            return .settings
+        default:
+            return .home
+        }
     }
 }
 
@@ -321,7 +359,8 @@ struct DragonArticlesView: View {
                             DragonRefreshStatusView(
                                 lastUpdatedAt: viewModel.lastUpdatedAt,
                                 isRefreshing: viewModel.isLoading,
-                                errorText: viewModel.refreshErrorText
+                                errorText: viewModel.refreshErrorText,
+                                statusText: viewModel.statusText
                             )
                         }
 
@@ -1049,127 +1088,6 @@ struct InfoBlock: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DragonTheme.card)
         .clipShape(RoundedRectangle(cornerRadius: 18))
-    }
-}
-
-// MARK: - Movies
-
-struct DragonMoviesView: View {
-    @State private var movies: [DragonMovie] = []
-    @State private var isLoading = false
-    @State private var errorText = ""
-    @State private var lastUpdatedAt: Date?
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                DragonTheme.background.ignoresSafeArea()
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Movies")
-                                    .font(.system(size: 38, weight: .bold))
-                                    .foregroundStyle(.white)
-
-                                Text("Lightweight cinema snapshot")
-                                    .font(.headline)
-                                    .foregroundStyle(.gray)
-                            }
-
-                            Spacer()
-
-                            Button {
-                                Task {
-                                    await loadMovies()
-                                }
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.headline)
-                                    .foregroundStyle(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(DragonTheme.card)
-                                    .clipShape(Circle())
-                            }
-                        }
-
-                        if isLoading || !movies.isEmpty || lastUpdatedAt != nil {
-                            DragonRefreshStatusView(
-                                lastUpdatedAt: lastUpdatedAt,
-                                isRefreshing: isLoading,
-                                errorText: movies.isEmpty ? nil : errorText
-                            )
-                        }
-
-                        if isLoading && movies.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ProgressView()
-                                    .tint(DragonTheme.red)
-
-                                Text("Loading movies...")
-                                    .foregroundStyle(.gray)
-                                    .font(.footnote)
-                            }
-                        }
-
-                        if !errorText.isEmpty && movies.isEmpty {
-                            Text(errorText)
-                                .font(.footnote)
-                                .foregroundStyle(DragonTheme.red)
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(DragonTheme.card)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                        }
-
-                        LazyVStack(spacing: 12) {
-                            ForEach(movies) { movie in
-                                NavigationLink {
-                                    MovieDetailView(movie: movie)
-                                } label: {
-                                    MovieRow(movie: movie)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(24)
-                    .padding(.bottom, 90)
-                }
-            }
-        }
-        .refreshable {
-            await loadMovies()
-        }
-        .task {
-            await loadMovies()
-        }
-    }
-
-    @MainActor
-    private func loadMovies() async {
-        isLoading = true
-
-        do {
-            let response = try await DragonAPIClient.shared.fetchMovies(limit: 20)
-
-            if response.ok {
-                movies = response.items
-                lastUpdatedAt = Date()
-                errorText = ""
-            } else {
-                handleFailure("Dragon API responded but ok=false")
-            }
-        } catch {
-            handleFailure("Could not load /api/v1/movies: \(error.localizedDescription)")
-        }
-
-        isLoading = false
-    }
-
-    private func handleFailure(_ message: String) {
-        errorText = message
     }
 }
 

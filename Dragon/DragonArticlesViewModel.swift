@@ -15,20 +15,23 @@ final class ArticlesViewModel: ObservableObject {
     @Published private(set) var response: DragonArticlesResponse?
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var refreshErrorText: String?
+    @Published private(set) var statusText: String?
+    @Published private(set) var refreshPhase: DragonArticlesRefreshPhase
 
-    private let client: DragonArticlesFetching
+    private let dataSource: DragonArticlesDataSource
     private let limit: Int
 
     init(
-        client: DragonArticlesFetching = DragonAPIClient.shared,
+        dataSource: DragonArticlesDataSource = DragonDefaultArticlesDataSource(),
         limit: Int = 20,
         initialState: State = .idle,
         initialResponse: DragonArticlesResponse? = nil
     ) {
-        self.client = client
+        self.dataSource = dataSource
         self.limit = limit
         self.state = initialState
         self.response = initialResponse
+        self.refreshPhase = initialResponse?.items.isEmpty == false ? .refreshed : .idle
     }
 
     var articles: [DragonArticle] {
@@ -43,21 +46,36 @@ final class ArticlesViewModel: ObservableObject {
     }
 
     func loadArticles() async {
-        state = .loading
+        refreshErrorText = nil
+
+        if let cachedResult = await dataSource.loadCachedArticles(limit: limit) {
+            response = cachedResult.response
+            lastUpdatedAt = cachedResult.cachedAt
+            statusText = "Showing cached articles while refreshing."
+            refreshPhase = cachedResult.response.items.isEmpty ? .empty : .cached
+            state = .loading
+        } else {
+            statusText = "Refreshing articles..."
+            refreshPhase = .refreshing
+            state = .loading
+        }
 
         do {
-            let response = try await client.fetchArticles(limit: limit)
+            let result = try await dataSource.refreshArticles(limit: limit)
+            let response = result.response
             guard response.ok else {
                 handleFailure("Dragon API responded but ok=false")
                 return
             }
 
             self.response = response
-            self.lastUpdatedAt = Date()
+            self.lastUpdatedAt = result.refreshedAt
             self.refreshErrorText = nil
+            self.statusText = result.source.refreshedStatusText
+            self.refreshPhase = response.items.isEmpty ? .empty : .refreshed
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
-            handleFailure("Could not load /api/v1/articles: \(error.localizedDescription)")
+            handleFailure(error.localizedDescription)
         }
     }
 
@@ -65,10 +83,14 @@ final class ArticlesViewModel: ObservableObject {
         refreshErrorText = message
 
         guard let response else {
+            statusText = nil
+            refreshPhase = .idle
             state = .failed(message)
             return
         }
 
+        statusText = response.items.isEmpty ? nil : "Showing cached articles."
+        refreshPhase = response.items.isEmpty ? .empty : .failedUsingCache
         state = response.items.isEmpty ? .empty : .loaded
     }
 }

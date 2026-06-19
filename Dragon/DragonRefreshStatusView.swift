@@ -5,6 +5,19 @@ struct DragonRefreshStatusView: View {
     let lastUpdatedAt: Date?
     let isRefreshing: Bool
     let errorText: String?
+    let statusText: String?
+
+    init(
+        lastUpdatedAt: Date?,
+        isRefreshing: Bool,
+        errorText: String?,
+        statusText: String? = nil
+    ) {
+        self.lastUpdatedAt = lastUpdatedAt
+        self.isRefreshing = isRefreshing
+        self.errorText = errorText
+        self.statusText = statusText
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -18,6 +31,12 @@ struct DragonRefreshStatusView: View {
                         .scaleEffect(0.6)
                         .tint(DragonTheme.red)
                 }
+            }
+
+            if let statusText, !statusText.isEmpty {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
             }
 
             if let errorText, !errorText.isEmpty {

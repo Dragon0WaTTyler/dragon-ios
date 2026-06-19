@@ -99,7 +99,7 @@ struct DragonSection: Decodable, Identifiable {
     }
 }
 
-struct DragonArticlesResponse: Decodable {
+struct DragonArticlesResponse: Codable, Sendable {
     let api_version: String
     let ok: Bool
     let items: [DragonArticle]
@@ -129,9 +129,17 @@ struct DragonArticlesResponse: Decodable {
             ?? container.decodeIfPresent(Int.self, forKey: .total)
             ?? items.count
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(api_version, forKey: .api_version)
+        try container.encode(ok, forKey: .ok)
+        try container.encode(items, forKey: .items)
+        try container.encode(count, forKey: .count)
+    }
 }
 
-struct DragonArticle: Decodable, Identifiable {
+struct DragonArticle: Codable, Sendable, Identifiable {
     let id: String
     let title: String
     let source: String
@@ -190,6 +198,19 @@ struct DragonArticle: Decodable, Identifiable {
         self.excerpt = DragonArticle.decodeString(container, forKeys: [.excerpt, .summary, .description])
         self.status = DragonArticle.decodeString(container, forKeys: [.status])
         self.read_state = DragonArticle.decodeString(container, forKeys: [.read_state])
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(source, forKey: .source)
+        try container.encode(url, forKey: .url)
+        try container.encode(published_at, forKey: .published_at)
+        try container.encode(saved_at, forKey: .saved_at)
+        try container.encode(excerpt, forKey: .excerpt)
+        try container.encode(status, forKey: .status)
+        try container.encode(read_state, forKey: .read_state)
     }
 
     private static func decodeString(
@@ -382,6 +403,58 @@ struct DragonMoviesResponse: Decodable {
     let ok: Bool
     let items: [DragonMovie]
     let count: Int
+    let total: Int
+    let limit: Int?
+    let offset: Int?
+    let has_more: Bool
+    let next_offset: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case api_version
+        case ok
+        case items
+        case count
+        case total
+        case limit
+        case offset
+        case has_more
+        case next_offset
+    }
+
+    init(
+        api_version: String,
+        ok: Bool,
+        items: [DragonMovie],
+        count: Int,
+        total: Int? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil,
+        has_more: Bool? = nil,
+        next_offset: Int? = nil
+    ) {
+        self.api_version = api_version
+        self.ok = ok
+        self.items = items
+        self.count = count
+        self.total = total ?? count
+        self.limit = limit
+        self.offset = offset
+        self.has_more = has_more ?? false
+        self.next_offset = next_offset
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.api_version = try container.decodeIfPresent(String.self, forKey: .api_version) ?? "v1"
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        self.items = try container.decodeIfPresent([DragonMovie].self, forKey: .items) ?? []
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? items.count
+        self.total = try container.decodeIfPresent(Int.self, forKey: .total) ?? count
+        self.limit = try container.decodeIfPresent(Int.self, forKey: .limit)
+        self.offset = try container.decodeIfPresent(Int.self, forKey: .offset)
+        self.has_more = try container.decodeIfPresent(Bool.self, forKey: .has_more) ?? false
+        self.next_offset = try container.decodeIfPresent(Int.self, forKey: .next_offset)
+    }
 }
 
 struct DragonMovie: Decodable, Identifiable {
@@ -393,19 +466,66 @@ struct DragonMovie: Decodable, Identifiable {
     let score: String
     let type: String
     let overview: String
+    let backdrop: String?
+    let genres: [String]
+    let runtime: String?
+    let detailURLString: String?
+    let progressValue: Double?
+    let progressText: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
         case title
+        case name
         case year
+        case release_year
+        case release_date
+        case first_air_date
         case poster
+        case poster_url
+        case image
+        case backdrop
+        case backdrop_url
+        case banner
         case status
         case score
+        case rating
+        case vote_average
         case type
+        case media_type
         case overview
+        case plot
+        case summary
+        case genres
+        case genre
+        case genre_names
+        case runtime
+        case duration
+        case length
+        case detail_url
+        case detailUrl
+        case href
+        case url
+        case progress
+        case watch_progress
     }
 
-    init(id: String, title: String, year: String, poster: String, status: String, score: String, type: String, overview: String) {
+    init(
+        id: String,
+        title: String,
+        year: String,
+        poster: String,
+        status: String,
+        score: String,
+        type: String,
+        overview: String,
+        backdrop: String? = nil,
+        genres: [String] = [],
+        runtime: String? = nil,
+        detailURLString: String? = nil,
+        progressValue: Double? = nil,
+        progressText: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.year = year
@@ -414,41 +534,310 @@ struct DragonMovie: Decodable, Identifiable {
         self.score = score
         self.type = type
         self.overview = overview
+        self.backdrop = backdrop
+        self.genres = genres
+        self.runtime = runtime
+        self.detailURLString = detailURLString
+        self.progressValue = progressValue
+        self.progressText = progressText
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = DragonMovie.decodeString(container, forKey: .id)
-        self.title = DragonMovie.decodeString(container, forKey: .title)
-        self.year = DragonMovie.decodeString(container, forKey: .year)
-        self.poster = DragonMovie.decodeString(container, forKey: .poster)
-        self.status = DragonMovie.decodeString(container, forKey: .status)
-        self.score = DragonMovie.decodeString(container, forKey: .score)
-        self.type = DragonMovie.decodeString(container, forKey: .type)
-        self.overview = DragonMovie.decodeString(container, forKey: .overview)
+
+        let decodedTitle = DragonMovie.decodeString(container, forKeys: [.title, .name], default: "Untitled movie")
+        let decodedYear = DragonMovie.decodeYear(container)
+        let decodedPoster = DragonMovie.decodeString(container, forKeys: [.poster, .poster_url, .image])
+        let decodedStatus = DragonMovie.decodeString(container, forKeys: [.status])
+        let decodedScore = DragonMovie.decodeString(container, forKeys: [.score, .rating, .vote_average])
+        let decodedType = DragonMovie.decodeString(container, forKeys: [.type, .media_type])
+        let decodedOverview = DragonMovie.decodeString(container, forKeys: [.overview, .plot, .summary])
+        let decodedBackdrop = DragonMovie.decodeOptionalString(container, forKeys: [.backdrop, .backdrop_url, .banner])
+        let decodedGenres = DragonMovie.decodeStringArray(container, forKeys: [.genres, .genre_names, .genre])
+        let decodedRuntime = DragonMovie.decodeOptionalString(container, forKeys: [.runtime, .duration, .length])
+        let decodedDetailURL = DragonMovie.decodeOptionalString(container, forKeys: [.detail_url, .detailUrl, .href, .url])
+        let decodedProgressValue = DragonMovie.decodeOptionalDouble(container, forKeys: [.progress, .watch_progress])
+        let decodedProgressText = DragonMovie.decodeOptionalString(container, forKeys: [.progress, .watch_progress])
+
+        let decodedID = DragonMovie.decodeString(container, forKeys: [.id])
+        if decodedID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let fallbackID = "\(decodedTitle)-\(decodedYear)"
+                .lowercased()
+                .replacingOccurrences(of: " ", with: "-")
+            self.id = fallbackID.isEmpty ? UUID().uuidString : fallbackID
+        } else {
+            self.id = decodedID
+        }
+
+        self.title = decodedTitle
+        self.year = decodedYear
+        self.poster = decodedPoster
+        self.status = decodedStatus
+        self.score = decodedScore
+        self.type = decodedType
+        self.overview = decodedOverview
+        self.backdrop = decodedBackdrop
+        self.genres = decodedGenres
+        self.runtime = decodedRuntime
+        self.detailURLString = decodedDetailURL
+        self.progressValue = decodedProgressValue
+        self.progressText = decodedProgressText
     }
 
-    private static func decodeString(_ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String {
-        if let value = try? container.decode(String.self, forKey: key) {
-            return value
+    var displayTitle: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled movie" : trimmed
+    }
+
+    var posterURL: URL? {
+        Self.sanitizedArtworkURL(from: poster)
+    }
+
+    var backdropURL: URL? {
+        Self.sanitizedArtworkURL(from: backdrop ?? "")
+    }
+
+    var primaryArtworkURL: URL? {
+        backdropURL ?? posterURL
+    }
+
+    var detailURL: URL? {
+        guard let detailURLString else {
+            return nil
         }
 
-        if let value = try? container.decode(Int.self, forKey: key) {
-            return String(value)
+        let trimmed = detailURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
         }
 
-        if let value = try? container.decode(Double.self, forKey: key) {
-            if value.rounded(.towardZero) == value {
-                return String(Int(value))
+        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+            return nil
+        }
+
+        return URL(string: trimmed)
+    }
+
+    var progressFraction: Double? {
+        guard let progressValue else {
+            return nil
+        }
+
+        if progressValue > 1 {
+            return min(progressValue / 100, 1)
+        }
+
+        return max(0, min(progressValue, 1))
+    }
+
+    var progressDisplayText: String? {
+        if let progressText {
+            let trimmed = progressText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
             }
-            return String(value)
         }
 
-        if let value = try? container.decode(Bool.self, forKey: key) {
-            return value ? "true" : "false"
+        guard let fraction = progressFraction else {
+            return nil
+        }
+
+        return "\(Int((fraction * 100).rounded()))%"
+    }
+
+    var sortScore: Double {
+        let normalized = score.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let numeric = Double(normalized) {
+            return numeric
+        }
+
+        switch normalized {
+        case "masterpiece", "excellent":
+            return 9.5
+        case "great":
+            return 8.8
+        case "very good":
+            return 8.0
+        case "good":
+            return 7.2
+        case "solid":
+            return 6.8
+        case "decent":
+            return 6.2
+        case "ok":
+            return 5.5
+        case "average":
+            return 5.0
+        case "weak":
+            return 4.2
+        default:
+            return 0
+        }
+    }
+
+    var isFinished: Bool {
+        let normalizedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedStatus.contains("finish") || normalizedStatus.contains("watch") || normalizedStatus.contains("complete") {
+            return true
+        }
+
+        if let progressFraction, progressFraction >= 0.98 {
+            return true
+        }
+
+        return false
+    }
+
+    var isInProgress: Bool {
+        let normalizedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedStatus.contains("watching") || normalizedStatus.contains("progress") || normalizedStatus.contains("continue") {
+            return true
+        }
+
+        if let progressFraction, progressFraction > 0.01 && progressFraction < 0.98 {
+            return true
+        }
+
+        return false
+    }
+
+    private static func decodeString(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKeys keys: [CodingKeys],
+        default defaultValue: String = ""
+    ) -> String {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+
+            if let value = try? container.decode(Double.self, forKey: key) {
+                if value.rounded(.towardZero) == value {
+                    return String(Int(value))
+                }
+                return String(value)
+            }
+
+            if let value = try? container.decode(Bool.self, forKey: key) {
+                return value ? "true" : "false"
+            }
+        }
+
+        return defaultValue
+    }
+
+    private static func decodeOptionalString(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKeys keys: [CodingKeys]
+    ) -> String? {
+        let value = decodeString(container, forKeys: keys)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func decodeOptionalDouble(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKeys keys: [CodingKeys]
+    ) -> Double? {
+        for key in keys {
+            if let value = try? container.decode(Double.self, forKey: key) {
+                return value
+            }
+
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return Double(value)
+            }
+
+            if let value = try? container.decode(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    continue
+                }
+
+                let digitsOnly = trimmed.replacingOccurrences(of: "%", with: "")
+                if let numeric = Double(digitsOnly) {
+                    return trimmed.contains("%") ? numeric / 100 : numeric
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func decodeStringArray(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKeys keys: [CodingKeys]
+    ) -> [String] {
+        for key in keys {
+            if let values = try? container.decode([String].self, forKey: key) {
+                let trimmed = values
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+
+            if let value = try? container.decode(String.self, forKey: key) {
+                let pieces = value
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if !pieces.isEmpty {
+                    return pieces
+                }
+            }
+        }
+
+        return []
+    }
+
+    private static func decodeYear(_ container: KeyedDecodingContainer<CodingKeys>) -> String {
+        if let explicitYear = decodeOptionalString(container, forKeys: [.year, .release_year]) {
+            return explicitYear
+        }
+
+        if let rawDate = decodeOptionalString(container, forKeys: [.release_date, .first_air_date]) {
+            return String(rawDate.prefix(4))
         }
 
         return ""
+    }
+
+    private static func sanitizedArtworkURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let normalizedValue: String
+        if trimmed.hasPrefix("//") {
+            normalizedValue = "https:\(trimmed)"
+        } else {
+            normalizedValue = trimmed
+        }
+
+        guard var components = URLComponents(string: normalizedValue) else {
+            return nil
+        }
+
+        let host = components.host?.lowercased() ?? ""
+        if (host == "www.themoviedb.org" || host == "themoviedb.org"),
+           components.path.hasPrefix("/t/p/") {
+            components.scheme = "https"
+            components.host = "image.tmdb.org"
+            components.query = nil
+            components.fragment = nil
+        }
+
+        return components.url
     }
 }
 
