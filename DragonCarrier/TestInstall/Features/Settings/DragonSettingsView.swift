@@ -16,168 +16,57 @@ struct DragonSettingsView: View {
     private let responseCache = DragonResponseCache.shared
 
     var body: some View {
-        ZStack {
-            DragonTheme.background.ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                DragonTheme.background.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Settings")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.white)
-
-                Text("Dragon connection")
-                    .font(.headline)
-                    .foregroundStyle(.gray)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Backend URL")
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-
-                    TextField("http://127.0.0.1:5000", text: $backendURLDraft)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .keyboardType(.URL)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .background(Color.black.opacity(0.35))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                    Text(statusLabel)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(statusColor)
-
-                    Text("Current backend URL: \(settingsStore.backendURL)")
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-                        .lineLimit(2)
-
-                    Text(lastCheckedLabel)
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-
-                    if let detailText {
-                        Text(detailText)
-                            .font(.caption)
-                            .foregroundStyle(.gray)
-                    }
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DragonTheme.card)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Cache Debug")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-
-                            Text("\(totalCacheCount) total cached response\(totalCacheCount == 1 ? "" : "s")")
-                                .font(.footnote)
-                                .foregroundStyle(.gray)
-                        }
-
-                        Spacer()
-
-                        Text(formattedCacheSize)
-                            .font(.headline.weight(.semibold))
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("Settings")
+                            .font(.system(size: 34, weight: .bold))
                             .foregroundStyle(.white)
-                    }
 
-                    Text("Articles cache: \(articleCacheCount) • Movies cache: \(movieCacheCount)")
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-
-                    if let cacheStatusText, !cacheStatusText.isEmpty {
-                        Text(cacheStatusText)
-                            .font(.caption)
+                        Text("Dragon connection")
+                            .font(.headline)
                             .foregroundStyle(.gray)
-                    }
 
-                    HStack(spacing: 12) {
-                        Button("Clear Articles Cache") {
-                            Task {
-                                await clearCache(for: .articles)
-                            }
-                        }
-                        .buttonStyle(DragonOutlineButtonStyle())
+                        backendCard
 
-                        Button("Clear Movies Cache") {
-                            Task {
-                                await clearCache(for: .movies)
-                            }
-                        }
-                        .buttonStyle(DragonOutlineButtonStyle())
-                    }
+                        cacheCard
 
-                    HStack(spacing: 12) {
-                        Button {
-                            Task {
-                                await refreshCacheInfo()
+                        adminCard
+
+                        HStack(spacing: 12) {
+                            Button("Save") {
+                                saveBackendURL()
                             }
-                        } label: {
-                            HStack {
-                                if isRefreshingCacheInfo {
-                                    ProgressView()
-                                        .tint(.white)
+                            .buttonStyle(DragonFilledButtonStyle())
+
+                            Button {
+                                checkBackend()
+                            } label: {
+                                HStack {
+                                    if isChecking {
+                                        ProgressView()
+                                            .tint(.white)
+                                    }
+
+                                    Text(isChecking ? "Testing..." : "Test Connection")
                                 }
-
-                                Text(isRefreshingCacheInfo ? "Refreshing..." : "Refresh cache info")
                             }
+                            .buttonStyle(DragonFilledButtonStyle())
+                            .disabled(isChecking)
                         }
-                        .buttonStyle(DragonFilledButtonStyle())
-                        .disabled(isRefreshingCacheInfo)
 
-                        Button {
-                            showClearCacheConfirmation = true
-                        } label: {
-                            Text("Clear All Cache")
+                        Button("Reset backend URL") {
+                            resetBackendURL()
                         }
-                        .buttonStyle(DragonFilledButtonStyle())
-                        .disabled(isRefreshingCacheInfo)
+                        .buttonStyle(DragonOutlineButtonStyle())
                     }
+                    .padding(24)
+                    .padding(.bottom, 24)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DragonTheme.card)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-
-                HStack(spacing: 12) {
-                    Button("Save") {
-                        saveBackendURL()
-                    }
-                    .buttonStyle(DragonFilledButtonStyle())
-
-                    Button {
-                        checkBackend()
-                    } label: {
-                        HStack {
-                            if isChecking {
-                                ProgressView()
-                                    .tint(.white)
-                            }
-
-                            Text(isChecking ? "Testing..." : "Test Connection")
-                        }
-                    }
-                    .buttonStyle(DragonFilledButtonStyle())
-                    .disabled(isChecking)
-                }
-
-                Button("Reset backend URL") {
-                    resetBackendURL()
-                }
-                .buttonStyle(DragonOutlineButtonStyle())
-
-                Spacer()
             }
-            .padding(24)
             .task {
                 backendURLDraft = settingsStore.backendURL
                 await refreshCacheInfo()
@@ -192,6 +81,170 @@ struct DragonSettingsView: View {
             } message: {
                 Text("This removes stored API response cache files only. Backend settings stay unchanged.")
             }
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    private var backendCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Backend URL")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            TextField("http://127.0.0.1:5000", text: $backendURLDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.URL)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(Color.black.opacity(0.35))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            Text(statusLabel)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(statusColor)
+
+            Text("Current backend URL: \(settingsStore.backendURL)")
+                .font(.caption)
+                .foregroundStyle(.gray)
+                .lineLimit(2)
+
+            Text(lastCheckedLabel)
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            if let detailText {
+                Text(detailText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var cacheCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Cache Debug")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+
+                    Text("\(totalCacheCount) total cached response\(totalCacheCount == 1 ? "" : "s")")
+                        .font(.footnote)
+                        .foregroundStyle(.gray)
+                }
+
+                Spacer()
+
+                Text(formattedCacheSize)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Text("Articles cache: \(articleCacheCount) • Movies cache: \(movieCacheCount)")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            if let cacheStatusText, !cacheStatusText.isEmpty {
+                Text(cacheStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            HStack(spacing: 12) {
+                Button("Clear Articles Cache") {
+                    Task {
+                        await clearCache(for: .articles)
+                    }
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+
+                Button("Clear Movies Cache") {
+                    Task {
+                        await clearCache(for: .movies)
+                    }
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    Task {
+                        await refreshCacheInfo()
+                    }
+                } label: {
+                    HStack {
+                        if isRefreshingCacheInfo {
+                            ProgressView()
+                                .tint(.white)
+                        }
+
+                        Text(isRefreshingCacheInfo ? "Refreshing..." : "Refresh cache info")
+                    }
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+                .disabled(isRefreshingCacheInfo)
+
+                Button {
+                    showClearCacheConfirmation = true
+                } label: {
+                    Text("Clear All Cache")
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+                .disabled(isRefreshingCacheInfo)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var adminCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Admin")
+                .font(.headline)
+                .foregroundStyle(.gray)
+
+            NavigationLink {
+                DragonAdminView()
+            } label: {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Manage Dragon")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+
+                        Text("Local section controls, TV cache actions, and diagnostics.")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DragonTheme.card)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 

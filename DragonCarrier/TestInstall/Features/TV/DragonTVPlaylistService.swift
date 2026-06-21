@@ -35,7 +35,7 @@ final class DragonDefaultTVDataSource: DragonTVDataSource {
     }
 
     func loadCachedChannels() async -> DragonTVCachedChannelsResult? {
-        await cacheStore.loadCachedReport()
+        try? await cacheStore.loadCachedReport()
     }
 
     func refreshChannels() async throws -> DragonTVRefreshResult {
