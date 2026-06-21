@@ -15,20 +15,54 @@ struct IPTVPlaylistSource: Identifiable, Codable, Hashable, Sendable {
         IPTVPlaylistSource(id: "language-ara", label: "Arabic", urlString: "https://iptv-org.github.io/iptv/languages/ara.m3u"),
         IPTVPlaylistSource(id: "language-eng", label: "English", urlString: "https://iptv-org.github.io/iptv/languages/eng.m3u"),
         IPTVPlaylistSource(id: "category-news", label: "News", urlString: "https://iptv-org.github.io/iptv/categories/news.m3u"),
-        IPTVPlaylistSource(id: "category-sports", label: "Sports", urlString: "https://iptv-org.github.io/iptv/categories/sports.m3u"),
-        IPTVPlaylistSource(id: "category-movies", label: "Movies", urlString: "https://iptv-org.github.io/iptv/categories/movies.m3u"),
         IPTVPlaylistSource(id: "category-documentary", label: "Documentary", urlString: "https://iptv-org.github.io/iptv/categories/documentary.m3u"),
-        IPTVPlaylistSource(id: "country-us", label: "US", urlString: "https://iptv-org.github.io/iptv/countries/us.m3u"),
-        IPTVPlaylistSource(id: "country-uk", label: "UK", urlString: "https://iptv-org.github.io/iptv/countries/uk.m3u"),
-        IPTVPlaylistSource(id: "region-arab", label: "Arab", urlString: "https://iptv-org.github.io/iptv/regions/arab.m3u"),
-        IPTVPlaylistSource(id: "index", label: "Index", urlString: "https://iptv-org.github.io/iptv/index.m3u"),
-        IPTVPlaylistSource(id: "pastebin", label: "Pastebin", urlString: "https://pastebin.com/raw/qgCC2HTU"),
-        IPTVPlaylistSource(id: "free-tv", label: "Free TV", urlString: "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8")
+        IPTVPlaylistSource(id: "streams-ma", label: "Morocco Sports", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/ma.m3u"),
+        IPTVPlaylistSource(id: "streams-qa", label: "Qatar / Al Kass / Al Jazeera", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/qa.m3u"),
+        IPTVPlaylistSource(id: "streams-sa", label: "Saudi Sports / News", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/sa.m3u"),
+        IPTVPlaylistSource(id: "streams-ae", label: "UAE Sports / News", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/ae.m3u"),
+        IPTVPlaylistSource(id: "streams-bh", label: "Bahrain Sports", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/bh.m3u"),
+        IPTVPlaylistSource(id: "streams-kw", label: "Kuwait Sports", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/kw.m3u"),
+        IPTVPlaylistSource(id: "streams-om", label: "Oman Sports", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/om.m3u"),
+        IPTVPlaylistSource(id: "streams-iq", label: "Iraq Sports", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/iq.m3u"),
+        IPTVPlaylistSource(id: "streams-uk-bbc", label: "BBC UK", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/uk_bbc.m3u"),
+        IPTVPlaylistSource(id: "streams-fr", label: "France", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/fr.m3u"),
+        IPTVPlaylistSource(id: "streams-de", label: "Germany / DW", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/de.m3u"),
+        IPTVPlaylistSource(id: "streams-us-samsung", label: "Samsung TV Plus US", urlString: "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us_samsung.m3u")
     ]
 
     static let lookupByURLString: [String: IPTVPlaylistSource] = {
         Dictionary(uniqueKeysWithValues: defaultSources.map { ($0.url.absoluteString, $0) })
     }()
+
+    static func effectiveLookupByURLString(
+        sourceStore: DragonTVSourceStore = DragonTVSourceStore()
+    ) -> [String: IPTVPlaylistSource] {
+        Dictionary(
+            uniqueKeysWithValues: sourceStore.enabledPlaylistSources().map { ($0.url.absoluteString, $0) }
+        )
+    }
+
+    static func mergedWithCustomSources(_ customSources: [URL]) -> [IPTVPlaylistSource] {
+        var merged = defaultSources
+        var seenURLs = Set(defaultSources.map(\.url.absoluteString))
+
+        for (index, url) in customSources.enumerated() {
+            guard seenURLs.insert(url.absoluteString).inserted else {
+                continue
+            }
+
+            let inferredLabel = url.host?.dragonTrimmedOrNil ?? "Custom Source \(index + 1)"
+            merged.append(
+                IPTVPlaylistSource(
+                    id: "custom-\(index + 1)",
+                    label: inferredLabel,
+                    urlString: url.absoluteString
+                )
+            )
+        }
+
+        return merged
+    }
 }
 
 struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
@@ -38,6 +72,7 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
     let tvgId: String?
     let group: String?
     let logo: URL?
+    let httpUserAgent: String?
     let sourceURLs: [URL]
     var isFavorite: Bool
 
@@ -57,6 +92,7 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
             tvgId: tvgId ?? incoming.tvgId,
             group: group ?? incoming.group,
             logo: logo ?? incoming.logo,
+            httpUserAgent: httpUserAgent ?? incoming.httpUserAgent,
             sourceURLs: Array(NSOrderedSet(array: sourceURLs + incoming.sourceURLs)) as? [URL] ?? sourceURLs,
             isFavorite: isFavorite || incoming.isFavorite
         )
@@ -68,7 +104,9 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
         return updated
     }
 
-    func sourceLabels(using lookup: [String: IPTVPlaylistSource] = IPTVPlaylistSource.lookupByURLString) -> [String] {
+    func sourceLabels(
+        using lookup: [String: IPTVPlaylistSource] = IPTVPlaylistSource.effectiveLookupByURLString()
+    ) -> [String] {
         var labels: [String] = []
 
         for sourceURL in sourceURLs {
@@ -101,11 +139,52 @@ struct IPTVSourceFailure: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+struct IPTVSourceDiagnostic: Identifiable, Codable, Hashable, Sendable {
+    let sourceID: String
+    let label: String
+    let url: URL
+    let downloadSucceeded: Bool
+    let parsedChannelCount: Int
+    let validChannelCount: Int
+    let interestingMatchCount: Int
+    let errorMessage: String?
+
+    var id: String {
+        sourceID
+    }
+}
+
+enum IPTVInterestingChannelStatus: String, Codable, Hashable, Sendable {
+    case validatedWorking
+    case parsedButFailedValidation
+}
+
+struct IPTVInterestingChannelDiagnostic: Identifiable, Codable, Hashable, Sendable {
+    let channelID: String
+    let name: String
+    let streamURL: URL
+    let group: String?
+    let logoURL: URL?
+    let httpUserAgent: String?
+    let matchedKeywords: [String]
+    let sourceLabels: [String]
+    let sourceURLs: [URL]
+    let status: IPTVInterestingChannelStatus
+    let statusCode: Int?
+    let errorMessage: String?
+
+    var id: String {
+        channelID
+    }
+}
+
 struct IPTVLoadReport: Codable, Sendable {
     let rawChannelCount: Int
     let dedupedChannelCount: Int
     let validChannelCount: Int
     let sourceFailures: [IPTVSourceFailure]
+    let sourceDiagnostics: [IPTVSourceDiagnostic]
+    let interestingChannelDiagnostics: [IPTVInterestingChannelDiagnostic]
     let channels: [IPTVChannel]
 }
 
@@ -161,8 +240,9 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
             return channel.isFavorite
         default:
             let supportedSourceIDs = sourceIDs
+            let sourceLookup = IPTVPlaylistSource.effectiveLookupByURLString()
             return channel.sourceURLs.contains { sourceURL in
-                guard let source = IPTVPlaylistSource.lookupByURLString[sourceURL.absoluteString] else {
+                guard let source = sourceLookup[sourceURL.absoluteString] else {
                     return false
                 }
 
@@ -176,23 +256,70 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
         case .all, .favorites:
             return []
         case .arabic:
-            return ["language-ara"]
+            return [
+                "language-ara",
+                "streams-ma",
+                "streams-qa",
+                "streams-sa",
+                "streams-ae",
+                "streams-bh",
+                "streams-kw",
+                "streams-om",
+                "streams-iq"
+            ]
         case .english:
-            return ["language-eng"]
+            return [
+                "language-eng",
+                "streams-uk-bbc",
+                "streams-us-samsung"
+            ]
         case .news:
-            return ["category-news"]
+            return [
+                "category-news",
+                "streams-qa",
+                "streams-sa",
+                "streams-ae",
+                "streams-uk-bbc",
+                "streams-fr",
+                "streams-de",
+                "streams-us-samsung"
+            ]
         case .sports:
-            return ["category-sports"]
+            return [
+                "streams-ma",
+                "streams-qa",
+                "streams-sa",
+                "streams-ae",
+                "streams-bh",
+                "streams-kw",
+                "streams-om",
+                "streams-iq"
+            ]
         case .movies:
             return ["category-movies"]
         case .documentary:
-            return ["category-documentary"]
+            return [
+                "category-documentary",
+                "streams-fr",
+                "streams-de",
+                "streams-us-samsung"
+            ]
         case .us:
-            return ["country-us"]
+            return ["streams-us-samsung"]
         case .uk:
-            return ["country-uk"]
+            return ["streams-uk-bbc"]
         case .arab:
-            return ["region-arab"]
+            return [
+                "language-ara",
+                "streams-ma",
+                "streams-qa",
+                "streams-sa",
+                "streams-ae",
+                "streams-bh",
+                "streams-kw",
+                "streams-om",
+                "streams-iq"
+            ]
         }
     }
 }

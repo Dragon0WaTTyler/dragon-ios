@@ -23,15 +23,18 @@ struct DragonRemoteM3UDataSource: Sendable {
 }
 
 final class DragonDefaultTVDataSource: DragonTVDataSource {
-    private let remoteDataSource: DragonRemoteM3UDataSource
+    private let service: IPTVPlaylistService
     private let cacheStore: DragonTVCacheStore
+    private let sourceStore: DragonTVSourceStore
 
     init(
-        remoteDataSource: DragonRemoteM3UDataSource = DragonRemoteM3UDataSource(),
-        cacheStore: DragonTVCacheStore = DragonTVCacheStore()
+        service: IPTVPlaylistService = IPTVPlaylistService(),
+        cacheStore: DragonTVCacheStore = DragonTVCacheStore(),
+        sourceStore: DragonTVSourceStore = DragonTVSourceStore()
     ) {
-        self.remoteDataSource = remoteDataSource
+        self.service = service
         self.cacheStore = cacheStore
+        self.sourceStore = sourceStore
     }
 
     func loadCachedChannels() async -> DragonTVCachedChannelsResult? {
@@ -39,7 +42,8 @@ final class DragonDefaultTVDataSource: DragonTVDataSource {
     }
 
     func refreshChannels() async throws -> DragonTVRefreshResult {
-        let report = await remoteDataSource.loadWorkingChannelsReport()
+        let sources = sourceStore.enabledPlaylistSources()
+        let report = await DragonRemoteM3UDataSource(service: service, sources: sources).loadWorkingChannelsReport()
         return await cacheStore.save(report)
     }
 }
