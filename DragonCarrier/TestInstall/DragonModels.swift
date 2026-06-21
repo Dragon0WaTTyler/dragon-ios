@@ -208,11 +208,16 @@ struct DragonArticle: Codable, Identifiable {
     let title: String
     let source: String
     let url: String
+    let original_url: String
+    let canonical_url: String
     let published_at: String
     let saved_at: String
     let excerpt: String
     let image: String
     let thumbnail: String
+    let media_url: String
+    let video_url: String
+    let video_embed_url: String
     let status: String
     let read_state: String
     let fulltext_status: DragonArticleFulltextStatus
@@ -225,11 +230,40 @@ struct DragonArticle: Codable, Identifiable {
         case source
         case source_name
         case url
+        case original_url
+        case originalUrl
+        case canonical_url
+        case canonicalUrl
         case published_at
+        case date
         case saved_at
         case excerpt
         case image
+        case image_url
+        case imageUrl
         case thumbnail
+        case thumbnail_url
+        case thumbnailUrl
+        case hero_image
+        case heroImage
+        case og_image
+        case ogImage
+        case media_image
+        case mediaImage
+        case enclosure_url
+        case enclosureUrl
+        case media_url
+        case mediaUrl
+        case video_url
+        case videoUrl
+        case video_embed_url
+        case videoEmbedUrl
+        case embed_url
+        case embedUrl
+        case youtube_url
+        case youtubeUrl
+        case youtube_embed_url
+        case youtubeEmbedUrl
         case summary
         case description
         case status
@@ -244,11 +278,16 @@ struct DragonArticle: Codable, Identifiable {
         title: String,
         source: String,
         url: String,
+        original_url: String = "",
+        canonical_url: String = "",
         published_at: String,
         saved_at: String,
         excerpt: String,
         image: String = "",
         thumbnail: String = "",
+        media_url: String = "",
+        video_url: String = "",
+        video_embed_url: String = "",
         status: String = "",
         read_state: String = "",
         fulltext_status: DragonArticleFulltextStatus = DragonArticleFulltextStatus(),
@@ -259,11 +298,16 @@ struct DragonArticle: Codable, Identifiable {
         self.title = title
         self.source = source
         self.url = url
+        self.original_url = original_url
+        self.canonical_url = canonical_url
         self.published_at = published_at
         self.saved_at = saved_at
         self.excerpt = excerpt
         self.image = image
         self.thumbnail = thumbnail
+        self.media_url = media_url
+        self.video_url = video_url
+        self.video_embed_url = video_embed_url
         self.status = status
         self.read_state = read_state
         self.fulltext_status = fulltext_status
@@ -277,11 +321,58 @@ struct DragonArticle: Codable, Identifiable {
         self.title = DragonArticle.decodeString(container, forKeys: [.title], default: "Untitled article")
         self.source = DragonArticle.decodeString(container, forKeys: [.source, .source_name])
         self.url = DragonArticle.decodeString(container, forKeys: [.url])
-        self.published_at = DragonArticle.decodeString(container, forKeys: [.published_at])
+        self.original_url = DragonArticle.decodeString(container, forKeys: [.original_url, .originalUrl])
+        self.canonical_url = DragonArticle.decodeString(container, forKeys: [.canonical_url, .canonicalUrl])
+        self.published_at = DragonArticle.decodeString(container, forKeys: [.published_at, .date])
         self.saved_at = DragonArticle.decodeString(container, forKeys: [.saved_at])
         self.excerpt = DragonArticle.decodeString(container, forKeys: [.excerpt, .summary, .description])
-        self.image = DragonArticle.decodeString(container, forKeys: [.image])
-        self.thumbnail = DragonArticle.decodeString(container, forKeys: [.thumbnail])
+        self.image = DragonArticle.decodeString(
+            container,
+            forKeys: [
+                .image,
+                .image_url,
+                .imageUrl,
+                .hero_image,
+                .heroImage,
+                .og_image,
+                .ogImage,
+                .media_image,
+                .mediaImage,
+                .enclosure_url,
+                .enclosureUrl
+            ]
+        )
+        self.thumbnail = DragonArticle.decodeString(
+            container,
+            forKeys: [
+                .thumbnail,
+                .thumbnail_url,
+                .thumbnailUrl,
+                .image,
+                .image_url,
+                .imageUrl,
+                .hero_image,
+                .heroImage,
+                .og_image,
+                .ogImage,
+                .media_image,
+                .mediaImage,
+                .enclosure_url,
+                .enclosureUrl
+            ]
+        )
+        self.media_url = DragonArticle.decodeString(
+            container,
+            forKeys: [.media_url, .mediaUrl, .video_url, .videoUrl, .youtube_url, .youtubeUrl]
+        )
+        self.video_url = DragonArticle.decodeString(
+            container,
+            forKeys: [.video_url, .videoUrl, .youtube_url, .youtubeUrl, .media_url, .mediaUrl]
+        )
+        self.video_embed_url = DragonArticle.decodeString(
+            container,
+            forKeys: [.video_embed_url, .videoEmbedUrl, .embed_url, .embedUrl, .youtube_embed_url, .youtubeEmbedUrl]
+        )
         self.status = DragonArticle.decodeString(container, forKeys: [.status])
         self.read_state = DragonArticle.decodeString(container, forKeys: [.read_state])
         self.fulltext_status = try container.decodeIfPresent(DragonArticleFulltextStatus.self, forKey: .fulltext_status) ?? DragonArticleFulltextStatus()
@@ -295,11 +386,16 @@ struct DragonArticle: Codable, Identifiable {
         try container.encode(title, forKey: .title)
         try container.encode(source, forKey: .source)
         try container.encode(url, forKey: .url)
+        try container.encode(original_url, forKey: .original_url)
+        try container.encode(canonical_url, forKey: .canonical_url)
         try container.encode(published_at, forKey: .published_at)
         try container.encode(saved_at, forKey: .saved_at)
         try container.encode(excerpt, forKey: .excerpt)
         try container.encode(image, forKey: .image)
         try container.encode(thumbnail, forKey: .thumbnail)
+        try container.encode(media_url, forKey: .media_url)
+        try container.encode(video_url, forKey: .video_url)
+        try container.encode(video_embed_url, forKey: .video_embed_url)
         try container.encode(status, forKey: .status)
         try container.encode(read_state, forKey: .read_state)
         try container.encode(fulltext_status, forKey: .fulltext_status)
@@ -337,6 +433,389 @@ struct DragonArticle: Codable, Identifiable {
         }
 
         return defaultValue
+    }
+}
+
+extension DragonArticle {
+    var displayTitle: String {
+        let trimmed = DragonArticleTextCleaner.displayText(title)
+        return trimmed.isEmpty ? "Untitled article" : trimmed
+    }
+
+    var displaySource: String {
+        DragonArticleTextCleaner.displayText(source)
+    }
+
+    var displayExcerpt: String {
+        DragonArticleTextCleaner.displayText(excerpt)
+    }
+
+    var publishedDate: Date? {
+        DragonArticle.date(from: published_at)
+    }
+
+    var publishedDisplayText: String? {
+        guard let publishedDate else {
+            let rawValue = published_at.trimmingCharacters(in: .whitespacesAndNewlines)
+            return rawValue.isEmpty ? nil : rawValue
+        }
+
+        return DragonArticle.displayFormatter.string(from: publishedDate)
+    }
+
+    var publishedRelativeDisplayText: String? {
+        guard let publishedDate else {
+            return publishedDisplayText
+        }
+
+        return DragonArticle.relativeFormatter.localizedString(for: publishedDate, relativeTo: Date())
+    }
+
+    var resolvedImageURL: URL? {
+        DragonArticle.firstValidURL(in: [thumbnail, image])
+    }
+
+    var resolvedOriginalURL: URL? {
+        DragonArticle.firstValidURL(in: [original_url, canonical_url, url])
+    }
+
+    var hasSavedIndicator: Bool {
+        !saved_at.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var savedIndicatorLabel: String? {
+        hasSavedIndicator ? "Saved" : nil
+    }
+
+    var readIndicatorLabel: String? {
+        let trimmed = read_state.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        return trimmed
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+
+    var hasReadableContent: Bool {
+        !content_text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !content_html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func isPublishedWithinLast24Hours(referenceDate: Date = Date()) -> Bool {
+        guard let publishedDate else {
+            return false
+        }
+
+        return publishedDate <= referenceDate
+            && publishedDate >= referenceDate.addingTimeInterval(-86_400)
+    }
+
+    private static func firstValidURL(in values: [String]) -> URL? {
+        values.compactMap(sanitizedURL).first
+    }
+
+    private static func sanitizedURL(_ rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        var candidates = [trimmed]
+        if trimmed.hasPrefix("//") {
+            candidates.insert("https:\(trimmed)", at: 0)
+        }
+        candidates.append(contentsOf: candidates.map { $0.replacingOccurrences(of: " ", with: "%20") })
+
+        for candidate in candidates {
+            guard let url = URL(string: candidate),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                continue
+            }
+
+            return url
+        }
+
+        return nil
+    }
+
+    private static func date(from rawValue: String) -> Date? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        for formatter in iso8601Parsers {
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        for formatter in fallbackDateParsers {
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+    private static let iso8601Parsers: [ISO8601DateFormatter] = {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+
+        return [fractional, standard]
+    }()
+
+    private static let fallbackDateParsers: [DateFormatter] = {
+        let locale = Locale(identifier: "en_US_POSIX")
+        let timeZone = TimeZone(secondsFromGMT: 0)
+
+        func formatter(_ format: String) -> DateFormatter {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.dateFormat = format
+            return formatter
+        }
+
+        return [
+            formatter("yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"),
+            formatter("yyyy-MM-dd'T'HH:mm:ssXXXXX"),
+            formatter("yyyy-MM-dd HH:mm:ss"),
+            formatter("yyyy-MM-dd"),
+            formatter("EEE, dd MMM yyyy HH:mm:ss Z"),
+            formatter("EEE, dd MMM yyyy HH:mm Z")
+        ]
+    }()
+
+    private static let displayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+}
+
+enum DragonArticleTextCleaner {
+    private static let maxDecodePasses = 3
+
+    static func displayText(_ value: String) -> String {
+        clean(value, preserveNewlines: false)
+    }
+
+    static func bodyText(_ value: String) -> String {
+        clean(value, preserveNewlines: true)
+    }
+
+    static func htmlSourceText(_ value: String) -> String {
+        clean(value, preserveNewlines: false)
+    }
+
+    static func plainText(fromHTML html: String) -> String {
+        guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+
+        return cleanHTML(html, preserveNewlines: true)
+    }
+
+    static func decodedEntities(_ value: String) -> String {
+        var current = value
+        for _ in 0..<maxDecodePasses {
+            let next = decodeSinglePass(current)
+            guard next != current else {
+                break
+            }
+            current = next
+        }
+
+        return current
+    }
+
+    private static func clean(_ value: String, preserveNewlines: Bool) -> String {
+        let decoded = decodedEntities(value)
+        let stripped = stripHTMLMarkup(decoded, preserveNewlines: preserveNewlines)
+        return normalizeWhitespace(stripped, preserveNewlines: preserveNewlines)
+    }
+
+    private static func cleanHTML(_ html: String, preserveNewlines: Bool) -> String {
+        let normalizedHTML = decodedEntities(html)
+        let stripped = stripHTMLMarkup(normalizedHTML, preserveNewlines: preserveNewlines)
+        return normalizeWhitespace(stripped, preserveNewlines: preserveNewlines)
+    }
+
+    private static func decodeSinglePass(_ value: String) -> String {
+        var decoded = value
+
+        let namedEntities = [
+            ("&" + "nbsp;", " "),
+            ("&" + "quot;", "\""),
+            ("&" + "apos;", "'"),
+            ("&" + "lt;", "<"),
+            ("&" + "gt;", ">"),
+            ("&" + "amp;", "&"),
+            ("&" + "ldquo;", "“"),
+            ("&" + "rdquo;", "”"),
+            ("&" + "lsquo;", "‘"),
+            ("&" + "rsquo;", "’"),
+            ("&" + "hellip;", "…")
+        ]
+
+        for (entity, replacement) in namedEntities {
+            decoded = decoded.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        decoded = decodeNumericEntities(in: decoded)
+        decoded = normalizeMalformedArtifacts(in: decoded)
+
+        return decoded
+    }
+
+    private static func normalizeMalformedArtifacts(in value: String) -> String {
+        var normalized = value
+        let replacements: [(String, String)] = [
+            ("#8220;&", "“"),
+            ("#8221;&", "”"),
+            ("#8216;&", "‘"),
+            ("#8217;&", "’"),
+            ("&#8220;&", "“"),
+            ("&#8221;&", "”"),
+            ("&#8216;&", "‘"),
+            ("&#8217;&", "’")
+        ]
+
+        for (artifact, replacement) in replacements {
+            normalized = normalized.replacingOccurrences(of: artifact, with: replacement)
+        }
+
+        return normalized
+    }
+
+    private static func stripHTMLMarkup(_ value: String, preserveNewlines: Bool) -> String {
+        var stripped = value
+        let lineBreakReplacement = preserveNewlines ? "\n\n" : " "
+
+        let blockPatterns = [
+            #"<script\b[\s\S]*?</script>"#,
+            #"<style\b[\s\S]*?</style>"#,
+            #"<noscript\b[\s\S]*?</noscript>"#,
+            #"<svg\b[\s\S]*?</svg>"#,
+            #"<nav\b[\s\S]*?</nav>"#,
+            #"<header\b[\s\S]*?</header>"#,
+            #"<footer\b[\s\S]*?</footer>"#,
+            #"<aside\b[\s\S]*?</aside>"#,
+            #"<form\b[\s\S]*?</form>"#
+        ]
+
+        for pattern in blockPatterns {
+            stripped = stripped.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
+        }
+
+        let separatorPatterns = [
+            #"<(?:/)?(?:p|div|li|blockquote|h[1-6]|section|article|main|tr|td|th|ul|ol)\b[^>]*>"#,
+            #"<br\b[^>]*>"#,
+            #"<hr\b[^>]*>"#
+        ]
+
+        for pattern in separatorPatterns {
+            stripped = stripped.replacingOccurrences(of: pattern, with: lineBreakReplacement, options: .regularExpression)
+        }
+
+        stripped = stripped.replacingOccurrences(
+            of: #"</?[A-Za-z][A-Za-z0-9:-]*(?:\s[^>]*)?>"#,
+            with: " ",
+            options: .regularExpression
+        )
+        stripped = stripped.replacingOccurrences(of: "<>", with: " ")
+
+        return stripped
+    }
+
+    private static func decodeNumericEntities(in value: String) -> String {
+        guard let expression = try? NSRegularExpression(pattern: "&#(x?[0-9A-Fa-f]+);", options: []) else {
+            return value
+        }
+
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        let matches = expression.matches(in: value, options: [], range: range)
+        guard !matches.isEmpty else {
+            return value
+        }
+
+        var result = ""
+        var currentIndex = value.startIndex
+
+        for match in matches {
+            guard let fullRange = Range(match.range, in: value),
+                  let captureRange = Range(match.range(at: 1), in: value) else {
+                continue
+            }
+
+            result.append(contentsOf: value[currentIndex..<fullRange.lowerBound])
+
+            let entity = String(value[captureRange])
+            let scalarValue: UInt32?
+            if entity.lowercased().hasPrefix("x") {
+                scalarValue = UInt32(entity.dropFirst(), radix: 16)
+            } else {
+                scalarValue = UInt32(entity, radix: 10)
+            }
+
+            if let scalarValue, let scalar = UnicodeScalar(scalarValue) {
+                result.append(Character(scalar))
+            } else {
+                result.append(contentsOf: value[fullRange])
+            }
+
+            currentIndex = fullRange.upperBound
+        }
+
+        result.append(contentsOf: value[currentIndex...])
+        return result
+    }
+
+    private static func normalizeWhitespace(_ value: String, preserveNewlines: Bool) -> String {
+        var normalized = value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+
+        if preserveNewlines {
+            normalized = normalized.replacingOccurrences(of: " *\n *", with: "\n", options: .regularExpression)
+            normalized = normalized.replacingOccurrences(of: "[ \t]{2,}", with: " ", options: .regularExpression)
+            normalized = normalized.replacingOccurrences(of: "[ \t]*\n[ \t]*", with: "\n", options: .regularExpression)
+            normalized = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        } else {
+            normalized = normalized.replacingOccurrences(of: "\n", with: " ")
+            normalized = normalized.replacingOccurrences(of: "[ \t]{2,}", with: " ", options: .regularExpression)
+        }
+
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension DragonArticlesResponse {
+    func filteredToRecentArticles(referenceDate: Date = Date()) -> DragonArticlesResponse {
+        let recentItems = items.filter { $0.isPublishedWithinLast24Hours(referenceDate: referenceDate) }
+        return DragonArticlesResponse(
+            api_version: api_version,
+            ok: ok,
+            items: recentItems,
+            count: recentItems.count
+        )
     }
 }
 

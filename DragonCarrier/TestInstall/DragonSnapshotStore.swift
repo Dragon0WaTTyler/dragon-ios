@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct DragonSnapshotRecord<Response: Codable>: Codable {
@@ -8,7 +9,9 @@ struct DragonSnapshotRecord<Response: Codable>: Codable {
 enum DragonSnapshotCacheKey {
     case home
     case articles(limit: Int)
+    case nativeArticlesFeed
     case articleDetail(id: String)
+    case articleContent(url: String)
     case books(limit: Int, offset: Int, query: String?)
     case movies(limit: Int)
     case youTube(source: String, section: String?, limit: Int, offset: Int, query: String?)
@@ -21,8 +24,12 @@ enum DragonSnapshotCacheKey {
             return "home"
         case .articles(let limit):
             return "articles_limit_\(limit)"
+        case .nativeArticlesFeed:
+            return "native_articles_feed"
         case .articleDetail(let id):
             return "article_detail_\(id)"
+        case .articleContent(let url):
+            return "article_content_\(hashedIdentifier(url))"
         case .books(let limit, let offset, let query):
             return "books_limit_\(limit)_offset_\(offset)_query_\(queryIdentifier(query))"
         case .movies(let limit):
@@ -72,6 +79,11 @@ enum DragonSnapshotCacheKey {
             return nil
         }
         return value
+    }
+
+    private func hashedIdentifier(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
 

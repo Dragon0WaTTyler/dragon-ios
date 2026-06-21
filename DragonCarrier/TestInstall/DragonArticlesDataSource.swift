@@ -9,25 +9,30 @@ enum DragonArticlesRefreshPhase: Equatable {
     case empty
 }
 
-enum DragonArticlesRefreshSource: String, Codable {
-    case directRSS
-    case remoteFallback
+enum DragonArticlesRefreshSource {
+    case nativeRSS
+    case cachedArticles
+    case legacyRemote
 
-    var liveDisplayLabel: String {
+    var displayLabel: String {
         switch self {
-        case .directRSS:
-            return "Direct RSS"
-        case .remoteFallback:
-            return "API fallback"
+        case .nativeRSS:
+            return "Native RSS"
+        case .cachedArticles:
+            return "Articles cache"
+        case .legacyRemote:
+            return "Legacy remote"
         }
     }
 
-    var cacheDisplayLabel: String {
+    var refreshWarning: String? {
         switch self {
-        case .directRSS:
-            return "Direct RSS cache"
-        case .remoteFallback:
-            return "API fallback cache"
+        case .nativeRSS:
+            return nil
+        case .cachedArticles:
+            return "Failed to refresh RSS. Showing saved articles."
+        case .legacyRemote:
+            return "Native RSS refresh failed. Showing legacy remote articles."
         }
     }
 }
@@ -42,6 +47,7 @@ struct DragonArticlesRefreshResult {
     let response: DragonArticlesResponse
     let refreshedAt: Date
     let source: DragonArticlesRefreshSource
+    let warningMessage: String?
 }
 
 protocol DragonArticlesDataSource {
@@ -49,171 +55,166 @@ protocol DragonArticlesDataSource {
     func refreshArticles(limit: Int) async throws -> DragonArticlesRefreshResult
 }
 
-enum DragonArticlesDataSourceError: LocalizedError {
-    case refreshFailed(primaryError: Error, fallbackError: Error)
+final class LegacyArticlesRemoteDataSource: DragonArticlesFetching {
+    private let remote: DragonArticlesFetching
 
-    var errorDescription: String? {
-        switch self {
-        case .refreshFailed(let primaryError, let fallbackError):
-            return "Direct RSS refresh failed (\(primaryError.localizedDescription)). API fallback also failed (\(fallbackError.localizedDescription))."
+    init(remote: DragonArticlesFetching = DragonRemoteDataSource.shared) {
+        self.remote = remote
+    }
+
+    func fetchArticles(limit: Int) async throws -> DragonAPIFetchResult<DragonArticlesResponse> {
+        try await remote.fetchArticles(limit: limit)
+    }
+
+    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
+        try await remote.fetchArticleDetail(id: id)
+    }
+}
+
+final class NativeRSSArticlesDataSource {
+    private let rssSource: DragonRSSArticleSource
+
+    init(rssSource: DragonRSSArticleSource = DragonRSSArticleSource()) {
+        self.rssSource = rssSource
+    }
+
+    func fetchArticles() async throws -> DragonNativeArticlesFetchResult {
+        let result = try await rssSource.fetchArticles()
+
+#if DEBUG
+        let oldestAgeText: String
+        if let oldestDisplayedArticleAgeHours = result.diagnostics.oldestDisplayedArticleAgeHours {
+            oldestAgeText = String(format: "%.1fh", oldestDisplayedArticleAgeHours)
+        } else {
+            oldestAgeText = "n/a"
+        }
+        print(
+            """
+            [Articles RSS] feeds=\(result.diagnostics.totalFeedsFetched) \
+            parsed=\(result.diagnostics.totalItemsParsed) \
+            dated=\(result.diagnostics.totalValidDatedItems) \
+            last24h=\(result.diagnostics.totalItemsInside24Hours) \
+            oldestDisplayed=\(oldestAgeText)
+            """
+        )
+#endif
+
+        return result
+    }
+}
+
+final class CachedArticlesDataSource: DragonArticlesDataSource {
+    private let native: NativeRSSArticlesDataSource
+    private let snapshotStore: DragonSnapshotStore
+    private let legacyFallback: DragonArticlesFetching?
+    private let nowProvider: () -> Date
+
+    init(
+        native: NativeRSSArticlesDataSource = NativeRSSArticlesDataSource(),
+        snapshotStore: DragonSnapshotStore = .shared,
+        legacyFallback: DragonArticlesFetching? = nil,
+        nowProvider: @escaping () -> Date = Date.init
+    ) {
+        self.native = native
+        self.snapshotStore = snapshotStore
+        self.legacyFallback = legacyFallback
+        self.nowProvider = nowProvider
+    }
+
+    func loadCachedArticles(limit: Int) async -> DragonCachedArticlesResult? {
+        guard let cachedResult = await snapshotStore.load(
+            DragonCachedArticlesEnvelope.self,
+            for: .nativeArticlesFeed
+        ) else {
+            return nil
+        }
+
+        let filteredResponse = cachedResult.value.response.filteredToRecentArticles(referenceDate: nowProvider())
+
+        return DragonCachedArticlesResult(
+            response: filteredResponse,
+            cachedAt: cachedResult.source.cachedMetadata?.cachedAt ?? nowProvider(),
+            source: .cachedArticles
+        )
+    }
+
+    func refreshArticles(limit: Int) async throws -> DragonArticlesRefreshResult {
+        do {
+            let result = try await native.fetchArticles()
+            let envelope = DragonCachedArticlesEnvelope(
+                response: result.response,
+                sourceStatuses: result.sourceStatuses,
+                diagnostics: result.diagnostics
+            )
+            await snapshotStore.save(envelope, for: .nativeArticlesFeed)
+
+            return DragonArticlesRefreshResult(
+                response: result.response.filteredToRecentArticles(referenceDate: nowProvider()),
+                refreshedAt: Date(),
+                source: .nativeRSS,
+                warningMessage: nil
+            )
+        } catch {
+            guard let legacyFallback else {
+                throw error
+            }
+
+            let fallbackResult = try await legacyFallback.fetchArticles(limit: limit)
+            let filteredResponse = fallbackResult.value.filteredToRecentArticles(referenceDate: nowProvider())
+            let diagnostics = DragonNativeArticlesDiagnostics(
+                totalFeedsFetched: 0,
+                totalItemsParsed: fallbackResult.value.items.count,
+                totalValidDatedItems: fallbackResult.value.items.filter { $0.publishedDate != nil }.count,
+                totalItemsInside24Hours: filteredResponse.items.count,
+                oldestDisplayedArticleAgeHours: filteredResponse.items.last?.publishedDate.map {
+                    nowProvider().timeIntervalSince($0) / 3_600
+                }
+            )
+            let envelope = DragonCachedArticlesEnvelope(
+                response: fallbackResult.value,
+                sourceStatuses: [],
+                diagnostics: diagnostics
+            )
+            await snapshotStore.save(envelope, for: .nativeArticlesFeed)
+
+            return DragonArticlesRefreshResult(
+                response: filteredResponse,
+                refreshedAt: Date(),
+                source: .legacyRemote,
+                warningMessage: DragonArticlesRefreshSource.legacyRemote.refreshWarning
+            )
         }
     }
 }
 
 final class DragonDefaultArticlesDataSource: DragonArticlesDataSource {
-    private let rssSource: DragonRSSArticleSource
-    private let remoteFallback: DragonArticlesFetching?
-    private let responseCache: DragonResponseCache
-    private let backendBaseURLProvider: () -> String
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let cachedDataSource: CachedArticlesDataSource
 
     init(
-        rssSource: DragonRSSArticleSource = DragonRSSArticleSource(),
-        remoteFallback: DragonArticlesFetching? = DragonRemoteDataSource.shared,
-        responseCache: DragonResponseCache = .shared,
-        backendBaseURLProvider: @escaping () -> String = currentDragonBackendBaseURL
+        native: NativeRSSArticlesDataSource = NativeRSSArticlesDataSource(),
+        snapshotStore: DragonSnapshotStore = .shared,
+        legacyFallback: DragonArticlesFetching? = nil,
+        nowProvider: @escaping () -> Date = Date.init
     ) {
-        self.rssSource = rssSource
-        self.remoteFallback = remoteFallback
-        self.responseCache = responseCache
-        self.backendBaseURLProvider = backendBaseURLProvider
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        self.encoder = encoder
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        self.decoder = decoder
+        self.cachedDataSource = CachedArticlesDataSource(
+            native: native,
+            snapshotStore: snapshotStore,
+            legacyFallback: legacyFallback,
+            nowProvider: nowProvider
+        )
     }
 
     func loadCachedArticles(limit: Int) async -> DragonCachedArticlesResult? {
-        let directCacheURL = directCacheURL(for: limit)
-        let directCachedResult = await loadCachedArticles(cacheURL: directCacheURL)
-
-        if let directCachedResult, !directCachedResult.response.items.isEmpty {
-            return directCachedResult
-        }
-
-        let backendURL = resolvedBackendBaseURL()
-        let fallbackCachedResult = await loadCachedArticles(
-            cacheURL: fallbackCacheURL(for: limit, backendURL: backendURL)
-        )
-
-        return fallbackCachedResult ?? directCachedResult
+        await cachedDataSource.loadCachedArticles(limit: limit)
     }
 
     func refreshArticles(limit: Int) async throws -> DragonArticlesRefreshResult {
-        do {
-            let response = try await rssSource.fetchArticles(limit: limit)
-            let refreshedAt = Date()
-            await save(response: response, cacheURL: directCacheURL(for: limit), source: .directRSS)
-            return DragonArticlesRefreshResult(
-                response: response,
-                refreshedAt: refreshedAt,
-                source: .directRSS
-            )
-        } catch let primaryError {
-            guard !(await hasUsableDirectCache(limit: limit)) else {
-                throw primaryError
-            }
-
-            guard let remoteFallback else {
-                throw primaryError
-            }
-
-            let backendURL = resolvedBackendBaseURL()
-
-            do {
-                let fallbackResult = try await remoteFallback.fetchArticles(limit: limit)
-                let response = fallbackResult.value
-                let refreshedAt = Date()
-
-                await save(
-                    response: response,
-                    cacheURL: fallbackCacheURL(for: limit, backendURL: backendURL),
-                    source: .remoteFallback
-                )
-
-                return DragonArticlesRefreshResult(
-                    response: response,
-                    refreshedAt: refreshedAt,
-                    source: .remoteFallback
-                )
-            } catch let fallbackError {
-                throw DragonArticlesDataSourceError.refreshFailed(
-                    primaryError: primaryError,
-                    fallbackError: fallbackError
-                )
-            }
-        }
-    }
-
-    private func hasUsableDirectCache(limit: Int) async -> Bool {
-        guard let cachedResult = await loadCachedArticles(cacheURL: directCacheURL(for: limit)) else {
-            return false
-        }
-
-        return !cachedResult.response.items.isEmpty
-    }
-
-    private func loadCachedArticles(cacheURL: URL) async -> DragonCachedArticlesResult? {
-        guard let cachedResponse = await responseCache.load(for: cacheURL),
-              let payload = try? decoder.decode(DragonCachedArticlesPayload.self, from: cachedResponse.data) else {
-            return nil
-        }
-
-        return DragonCachedArticlesResult(
-            response: payload.response,
-            cachedAt: cachedResponse.metadata.cachedAt,
-            source: payload.source
-        )
-    }
-
-    private func save(
-        response: DragonArticlesResponse,
-        cacheURL: URL,
-        source: DragonArticlesRefreshSource
-    ) async {
-        let payload = DragonCachedArticlesPayload(response: response, source: source)
-        guard let data = try? encoder.encode(payload) else {
-            return
-        }
-
-        await responseCache.save(data: data, for: cacheURL)
-    }
-
-    private func directCacheURL(for limit: Int) -> URL {
-        var components = URLComponents()
-        components.scheme = "dragon-cache"
-        components.host = DragonResponseCacheDomain.articles.rawValue
-        components.path = "/direct-rss-v1"
-        components.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
-
-        return components.url ?? URL(string: "dragon-cache://articles/direct-rss-v1?limit=\(limit)")!
-    }
-
-    private func fallbackCacheURL(for limit: Int, backendURL: String) -> URL {
-        var components = URLComponents()
-        components.scheme = "dragon-cache"
-        components.host = DragonResponseCacheDomain.articles.rawValue
-        components.path = "/api-fallback-v1"
-        components.queryItems = [
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "backend", value: backendURL)
-        ]
-
-        return components.url
-            ?? URL(string: "dragon-cache://articles/api-fallback-v1?limit=\(limit)")!
-    }
-
-    private func resolvedBackendBaseURL() -> String {
-        normalizeDragonBackendBaseURL(backendBaseURLProvider()) ?? dragonDefaultBackendBaseURL
+        try await cachedDataSource.refreshArticles(limit: limit)
     }
 }
 
-private struct DragonCachedArticlesPayload: Codable {
+private struct DragonCachedArticlesEnvelope: Codable {
     let response: DragonArticlesResponse
-    let source: DragonArticlesRefreshSource
+    let sourceStatuses: [DragonRSSSourceFetchStatus]
+    let diagnostics: DragonNativeArticlesDiagnostics
 }

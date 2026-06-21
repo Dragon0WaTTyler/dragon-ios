@@ -20,31 +20,24 @@ final class ArticlesViewModel: ObservableObject {
     @Published private(set) var sourceLabel: String
 
     private let dataSource: DragonArticlesDataSource
-    private let detailDataSourceProvider: DragonDataSource
     private let limit: Int
 
     init(
         dataSource: DragonArticlesDataSource = DragonDefaultArticlesDataSource(),
-        detailDataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource,
-        limit: Int = 20,
+        limit: Int = dragonArticlesRequestLimit,
         initialState: State = .idle,
         initialResponse: DragonArticlesResponse? = nil
     ) {
         self.dataSource = dataSource
-        self.detailDataSourceProvider = detailDataSource
         self.limit = limit
         self.state = initialState
         self.response = initialResponse
         self.refreshPhase = initialResponse?.items.isEmpty == false ? .refreshed : .idle
-        self.sourceLabel = initialResponse?.items.isEmpty == false ? DragonArticlesRefreshSource.directRSS.liveDisplayLabel : "Empty"
+        self.sourceLabel = initialResponse?.items.isEmpty == false ? "Preview" : "Empty"
     }
 
     var articles: [DragonArticle] {
         response?.items ?? []
-    }
-
-    var detailDataSource: DragonDataSource {
-        detailDataSourceProvider
     }
 
     var isLoading: Bool {
@@ -60,8 +53,8 @@ final class ArticlesViewModel: ObservableObject {
         if let cachedResult = await dataSource.loadCachedArticles(limit: limit) {
             response = cachedResult.response
             lastUpdatedAt = cachedResult.cachedAt
-            sourceLabel = cachedResult.source.cacheDisplayLabel
-            statusText = statusLine(sourceLabel: sourceLabel, count: cachedResult.response.items.count)
+            sourceLabel = cachedResult.source.displayLabel
+            statusText = statusLine(sourceLabel: sourceLabel, count: cachedResult.response.items.count, detail: "Refreshing")
             refreshPhase = cachedResult.response.items.isEmpty ? .empty : .cached
             state = .loading
         } else {
@@ -75,16 +68,18 @@ final class ArticlesViewModel: ObservableObject {
             let result = try await dataSource.refreshArticles(limit: limit)
             let response = result.response
             guard response.ok else {
-                handleFailure("Dragon API responded but ok=false")
+                handleFailure("Article refresh returned an invalid response.")
                 return
             }
 
             self.response = response
             self.lastUpdatedAt = result.refreshedAt
-            self.refreshErrorText = nil
-            self.sourceLabel = result.source.liveDisplayLabel
+            self.refreshErrorText = result.warningMessage
+            self.sourceLabel = result.source.displayLabel
             self.statusText = statusLine(sourceLabel: sourceLabel, count: response.items.count)
-            self.refreshPhase = response.items.isEmpty ? .empty : .refreshed
+            self.refreshPhase = result.warningMessage == nil
+                ? (response.items.isEmpty ? .empty : .refreshed)
+                : (response.items.isEmpty ? .empty : .failedUsingCache)
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
             handleFailure(error.localizedDescription)
@@ -117,12 +112,27 @@ final class ArticlesViewModel: ObservableObject {
         state = .loaded
     }
 
-    private func statusLine(sourceLabel: String, count: Int, detail: String? = nil) -> String {
-        let articleLabel = count == 1 ? "article" : "articles"
-        if let detail, !detail.isEmpty {
-            return "Source: \(sourceLabel) • \(count) \(articleLabel) • \(detail)"
+    func refreshOnForegroundIfNeeded() async {
+        guard !isLoading else {
+            return
         }
-        return "Source: \(sourceLabel) • \(count) \(articleLabel)"
+
+        guard let lastUpdatedAt else {
+            await loadArticles()
+            return
+        }
+
+        if Date().timeIntervalSince(lastUpdatedAt) >= 300 {
+            await loadArticles()
+        }
+    }
+
+    private func statusLine(sourceLabel: String, count: Int, detail: String? = nil) -> String {
+        let articleLabel = count == 1 ? "recent article" : "recent articles"
+        if let detail, !detail.isEmpty {
+            return "Source: \(sourceLabel) • \(count) \(articleLabel) • Last 24h • \(detail)"
+        }
+        return "Source: \(sourceLabel) • \(count) \(articleLabel) • Last 24h"
     }
 }
 
@@ -136,8 +146,8 @@ extension DragonArticlesResponse {
                 title: "How Dragon’s Articles Tab Behaves as a Native List",
                 source: "Dragon Notes",
                 url: "https://example.com/articles/native-list",
-                published_at: "2026-06-12T10:45:00Z",
-                saved_at: "2026-06-12T11:00:00Z",
+                published_at: "2026-06-21T10:45:00Z",
+                saved_at: "2026-06-21T11:00:00Z",
                 excerpt: "A lightweight native slice that shows title, source, date, and excerpt while leaving room for a fuller reader later.",
                 status: "unread",
                 read_state: "unread"
@@ -147,7 +157,7 @@ extension DragonArticlesResponse {
                 title: "Preview Data Keeps SwiftUI Fast and Reliable",
                 source: "Local Mock Feed",
                 url: "https://example.com/articles/previews",
-                published_at: "2026-06-11T18:20:00Z",
+                published_at: "2026-06-21T03:20:00Z",
                 saved_at: "",
                 excerpt: "Mock data lets the list and placeholder detail render in previews even when the backend is offline.",
                 status: "reading",

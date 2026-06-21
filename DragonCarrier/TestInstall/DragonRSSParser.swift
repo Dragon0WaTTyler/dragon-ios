@@ -13,6 +13,10 @@ struct DragonParsedArticle: Sendable {
     let source: String
     let publishedAt: Date?
     let summary: String
+    let summaryHTML: String
+    let contentHTML: String
+    let imageURL: String
+    let videoURL: String
 }
 
 enum DragonRSSParserError: LocalizedError {
@@ -84,16 +88,11 @@ private extension DragonRSSParser {
                 return
             }
 
-            guard currentItem != nil, name == "link" else {
+            guard currentItem != nil else {
                 return
             }
 
-            if let href = attributeDict["href"], !href.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let relationship = attributeDict["rel"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if relationship == nil || relationship == "alternate" || relationship == "self" {
-                    currentItem?.link = href
-                }
-            }
+            currentItem?.apply(attributes: attributeDict, for: name)
         }
 
         func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -144,55 +143,111 @@ private extension DragonRSSParser {
         var id = ""
         var title = ""
         var link = ""
-        var description = ""
-        var summary = ""
-        var content = ""
+        var descriptionHTML = ""
+        var summaryHTML = ""
+        var contentHTML = ""
         var publishedText = ""
+        var imageCandidates: [String] = []
+        var videoCandidates: [String] = []
 
         mutating func apply(text: String, for elementName: String) {
-            let cleanedValue = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleanedValue.isEmpty else {
+            let trimmedValue = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedValue.isEmpty else {
                 return
             }
 
             switch elementName {
             case "title":
                 if title.isEmpty {
-                    title = cleanedValue
+                    title = trimmedValue
                 }
             case "link":
                 if link.isEmpty {
-                    link = cleanedValue
+                    link = trimmedValue
                 }
             case "guid", "id":
                 if id.isEmpty {
-                    id = cleanedValue
+                    id = trimmedValue
                 }
             case "description":
-                if description.isEmpty {
-                    description = cleanedValue
+                if descriptionHTML.isEmpty {
+                    descriptionHTML = text
                 }
             case "summary":
-                if summary.isEmpty {
-                    summary = cleanedValue
+                if summaryHTML.isEmpty {
+                    summaryHTML = text
                 }
             case "content", "encoded":
-                if content.isEmpty {
-                    content = cleanedValue
+                if contentHTML.isEmpty {
+                    contentHTML = text
                 }
             case "pubdate", "published", "updated":
                 if publishedText.isEmpty {
-                    publishedText = cleanedValue
+                    publishedText = trimmedValue
+                }
+            case "thumbnail", "image":
+                if imageCandidates.isEmpty {
+                    imageCandidates.append(trimmedValue)
+                }
+            case "video":
+                if videoCandidates.isEmpty {
+                    videoCandidates.append(trimmedValue)
                 }
             default:
                 break
             }
         }
 
+        mutating func apply(attributes: [String: String], for elementName: String) {
+            func firstAttribute(_ keys: [String]) -> String? {
+                keys.compactMap { attributes[$0] }.first
+            }
+
+            if elementName == "link",
+               let href = firstAttribute(["href"]),
+               !href.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let relationship = attributes["rel"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if relationship == nil || relationship == "alternate" || relationship == "self" {
+                    link = href
+                }
+            }
+
+            let urlValue = firstAttribute(["url", "href", "src"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !urlValue.isEmpty else {
+                return
+            }
+
+            let normalizedType = [
+                attributes["type"],
+                attributes["medium"],
+                attributes["role"]
+            ]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+
+            if elementName == "thumbnail" {
+                imageCandidates.append(urlValue)
+                return
+            }
+
+            if elementName == "enclosure" || elementName == "content" || elementName == "group" || elementName == "image" {
+                if normalizedType.contains("video") || DragonRSSParser.extractYouTubeVideoURL(from: urlValue) != nil {
+                    videoCandidates.append(urlValue)
+                } else if normalizedType.isEmpty || normalizedType.contains("image") {
+                    imageCandidates.append(urlValue)
+                }
+            }
+        }
+
         func build(feedTitle: String) -> DragonParsedArticle? {
             let resolvedTitle = DragonRSSParser.cleanText(title)
             let resolvedLink = DragonRSSParser.cleanLink(link)
-            let resolvedSummary = DragonRSSParser.cleanSummary(summary, description: description, content: content)
+            let resolvedSummaryHTML = DragonRSSParser.preferredHTML(summaryHTML, descriptionHTML: descriptionHTML, contentHTML: contentHTML)
+            let resolvedSummary = DragonRSSParser.cleanSummary(
+                resolvedSummaryHTML,
+                descriptionHTML: descriptionHTML,
+                contentHTML: contentHTML
+            )
 
             guard !resolvedTitle.isEmpty || !resolvedLink.isEmpty || !resolvedSummary.isEmpty else {
                 return nil
@@ -204,13 +259,37 @@ private extension DragonRSSParser {
                 ? DragonRSSParser.hashedID(link: resolvedLink, title: resolvedTitle, source: feedTitle)
                 : rawID
 
+            let resolvedContentHTML = DragonRSSParser.preferredHTML(contentHTML, descriptionHTML: descriptionHTML, contentHTML: summaryHTML)
+            let bestImageURL = DragonRSSParser.bestImageURL(
+                from: imageCandidates.map(Optional.some) + [
+                    DragonRSSParser.extractOGImage(from: contentHTML),
+                    DragonRSSParser.extractOGImage(from: descriptionHTML),
+                    DragonRSSParser.extractFirstImage(from: contentHTML),
+                    DragonRSSParser.extractFirstImage(from: descriptionHTML),
+                    DragonRSSParser.extractFirstImage(from: summaryHTML)
+                ]
+            )
+
+            let bestVideoURL = DragonRSSParser.bestVideoURL(
+                from: videoCandidates.map(Optional.some) + [
+                    DragonRSSParser.extractYouTubeVideoURL(from: contentHTML),
+                    DragonRSSParser.extractYouTubeVideoURL(from: descriptionHTML),
+                    DragonRSSParser.extractYouTubeVideoURL(from: summaryHTML),
+                    DragonRSSParser.extractYouTubeVideoURL(from: resolvedLink)
+                ]
+            )
+
             return DragonParsedArticle(
                 id: stableID,
                 title: resolvedTitle.isEmpty ? "Untitled article" : resolvedTitle,
                 link: resolvedLink,
                 source: feedTitle,
                 publishedAt: parsedDate,
-                summary: resolvedSummary
+                summary: resolvedSummary,
+                summaryHTML: resolvedSummaryHTML,
+                contentHTML: resolvedContentHTML,
+                imageURL: bestImageURL ?? "",
+                videoURL: bestVideoURL ?? ""
             )
         }
     }
@@ -224,52 +303,29 @@ private extension DragonRSSParser {
     }
 
     static func cleanText(_ value: String) -> String {
-        decodeHTMLEntities(
-            value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        DragonArticleTextCleaner.displayText(value)
     }
 
     static func cleanLink(_ value: String) -> String {
         cleanText(value)
     }
 
-    static func cleanSummary(_ summary: String, description: String, content: String) -> String {
-        let rawValue: String
-        if !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            rawValue = summary
-        } else if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            rawValue = description
-        } else {
-            rawValue = content
-        }
+    static func preferredHTML(_ primary: String, descriptionHTML: String, contentHTML fallbackHTML: String) -> String {
+        let candidates = [primary, descriptionHTML, fallbackHTML]
+        return candidates.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+    }
 
-        let withoutTags = rawValue.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
+    static func cleanSummary(_ summaryHTML: String, descriptionHTML: String, contentHTML: String) -> String {
+        let rawValue = preferredHTML(summaryHTML, descriptionHTML: descriptionHTML, contentHTML: contentHTML)
+        return plainText(fromHTML: rawValue)
+    }
 
-        return cleanText(withoutTags)
+    static func plainText(fromHTML html: String) -> String {
+        DragonArticleTextCleaner.plainText(fromHTML: html)
     }
 
     static func decodeHTMLEntities(_ value: String) -> String {
-        var decoded = value
-        let replacements = [
-            "&nbsp;": " ",
-            "&amp;": "&",
-            "&quot;": "\"",
-            "&#39;": "'",
-            "&apos;": "'",
-            "&lt;": "<",
-            "&gt;": ">"
-        ]
-
-        for (entity, replacement) in replacements {
-            decoded = decoded.replacingOccurrences(of: entity, with: replacement)
-        }
-
-        return decoded
+        DragonArticleTextCleaner.decodedEntities(value)
     }
 
     static func hashedID(link: String, title: String, source: String) -> String {
@@ -300,6 +356,147 @@ private extension DragonRSSParser {
         }
 
         return nil
+    }
+
+    static func extractOGImage(from html: String) -> String? {
+        extractMetaContent(from: html, propertyNames: ["og:image", "twitter:image"])
+    }
+
+    static func extractMetaContent(from html: String, propertyNames: [String]) -> String? {
+        for propertyName in propertyNames {
+            let pattern = #"<meta[^>]+(?:property|name)\s*=\s*["']\#(propertyName)["'][^>]+content\s*=\s*["']([^"']+)["'][^>]*>"#
+            if let match = firstMatch(for: pattern, in: html, captureGroup: 1) {
+                return cleanText(match)
+            }
+        }
+        return nil
+    }
+
+    static func extractFirstImage(from html: String) -> String? {
+        let patterns = [
+            #"<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>"#,
+            #"<figure[^>]*>[\s\S]*?<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>"#
+        ]
+
+        for pattern in patterns {
+            if let match = firstMatch(for: pattern, in: html, captureGroup: 1),
+               let normalized = normalizedMediaURL(match),
+               isMeaningfulImageURL(normalized) {
+                return normalized
+            }
+        }
+
+        return nil
+    }
+
+    static func bestImageURL(from candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let candidate,
+                  let normalized = normalizedMediaURL(candidate),
+                  isMeaningfulImageURL(normalized) else {
+                continue
+            }
+
+            return normalized
+        }
+
+        return nil
+    }
+
+    static func bestVideoURL(from candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let candidate,
+                  let resolved = extractYouTubeVideoURL(from: candidate) else {
+                continue
+            }
+
+            return resolved
+        }
+
+        return nil
+    }
+
+    static func extractYouTubeVideoURL(from value: String) -> String? {
+        let patterns = [
+            #"https?://(?:www\.)?youtube\.com/watch\?[^"'\s<]*v=[A-Za-z0-9_-]{11}[^"'\s<]*"#,
+            #"https?://(?:www\.)?youtube\.com/embed/[A-Za-z0-9_-]{11}[^"'\s<]*"#,
+            #"https?://(?:www\.)?youtube\.com/shorts/[A-Za-z0-9_-]{11}[^"'\s<]*"#,
+            #"https?://youtu\.be/[A-Za-z0-9_-]{11}[^"'\s<]*"#,
+            #"//(?:www\.)?youtube\.com/watch\?[^"'\s<]*v=[A-Za-z0-9_-]{11}[^"'\s<]*"#,
+            #"//youtu\.be/[A-Za-z0-9_-]{11}[^"'\s<]*"#
+        ]
+
+        for pattern in patterns {
+            if let match = firstMatch(for: pattern, in: decodeHTMLEntities(value), captureGroup: 0) {
+                return normalizedMediaURL(match)
+            }
+        }
+
+        let cleaned = cleanText(value)
+        guard cleaned.contains("youtube.com") || cleaned.contains("youtu.be") else {
+            return nil
+        }
+        return normalizedMediaURL(cleaned)
+    }
+
+    static func normalizedMediaURL(_ rawValue: String) -> String? {
+        let trimmed = DragonArticleTextCleaner.decodedEntities(rawValue)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'<>(),"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.lowercased().hasPrefix("data:") else {
+            return nil
+        }
+
+        let candidate = trimmed.hasPrefix("//") ? "https:\(trimmed)" : trimmed
+        let sanitized = candidate.replacingOccurrences(of: " ", with: "%20")
+        guard let url = URL(string: sanitized),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        return url.absoluteString
+    }
+
+    static func isMeaningfulImageURL(_ value: String) -> Bool {
+        guard let url = URL(string: value),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return false
+        }
+
+        let lowercasedPath = url.path.lowercased()
+        if lowercasedPath.hasSuffix(".svg") {
+            return false
+        }
+
+        let noiseMarkers = [
+            "icon",
+            "logo",
+            "avatar",
+            "sprite",
+            "favicon",
+            "placeholder",
+            "blank",
+            "emoji"
+        ]
+
+        return !noiseMarkers.contains { lowercasedPath.contains($0) || url.absoluteString.lowercased().contains($0) }
+    }
+
+    static func firstMatch(for pattern: String, in value: String, captureGroup: Int) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = expression.firstMatch(in: value, options: [], range: range),
+              let captureRange = Range(match.range(at: captureGroup), in: value) else {
+            return nil
+        }
+
+        return String(value[captureRange])
     }
 
     static let iso8601Formatters: [ISO8601DateFormatter] = {

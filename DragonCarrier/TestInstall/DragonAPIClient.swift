@@ -3,6 +3,7 @@ import Foundation
 let dragonBackendBaseURLDefaultsKey = "dragon.backendBaseURL"
 let dragonDefaultBackendBaseURL = "http://127.0.0.1:5000"
 let dragonBooksRemoteRescueBaseURL = "https://dragon99.pythonanywhere.com"
+let dragonArticlesRequestLimit = 300
 
 func normalizeDragonBackendBaseURL(_ rawValue: String) -> String? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -64,7 +65,7 @@ final class DragonAPIClient {
         try await fetchDecodable(DragonHomeResponse.self, path: "/api/v1/home")
     }
 
-    func fetchArticles(limit: Int = 20) async throws -> DragonAPIFetchResult<DragonArticlesResponse> {
+    func fetchArticles(limit: Int = dragonArticlesRequestLimit) async throws -> DragonAPIFetchResult<DragonArticlesResponse> {
         try await fetchDecodable(
             DragonArticlesResponse.self,
             path: "/api/v1/articles",

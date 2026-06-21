@@ -1,23 +1,67 @@
 import Foundation
 
-struct DragonRSSFeedDescriptor {
-    let title: String
-    let url: URL
+struct DragonRSSSourceDescriptor: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let feedURL: String
+    let language: String?
+    let category: String?
+    let active: Bool
+
+    var url: URL? {
+        URL(string: feedURL)
+    }
+}
+
+struct DragonRSSSourceFetchStatus: Codable, Sendable {
+    let sourceID: String
+    let sourceName: String
+    let feedURL: String
+    let status: String
+    let itemCount: Int
+    let fetchedAt: Date
+    let errorMessage: String?
+}
+
+struct DragonNativeArticlesDiagnostics: Codable, Sendable {
+    let totalFeedsFetched: Int
+    let totalItemsParsed: Int
+    let totalValidDatedItems: Int
+    let totalItemsInside24Hours: Int
+    let oldestDisplayedArticleAgeHours: Double?
+}
+
+struct DragonNativeArticlesFetchResult: Sendable {
+    let response: DragonArticlesResponse
+    let sourceStatuses: [DragonRSSSourceFetchStatus]
+    let diagnostics: DragonNativeArticlesDiagnostics
 }
 
 enum DragonArticlesFeedRegistry {
-    static let v1Feeds: [DragonRSSFeedDescriptor] = [
-        DragonRSSFeedDescriptor(
-            title: "Apple Developer News",
-            url: URL(string: "https://developer.apple.com/news/rss/news.rss")!
+    static let v1Feeds: [DragonRSSSourceDescriptor] = [
+        DragonRSSSourceDescriptor(
+            id: "hespress",
+            name: "Hespress",
+            feedURL: "https://www.hespress.com/feed",
+            language: "ar",
+            category: "general",
+            active: true
         ),
-        DragonRSSFeedDescriptor(
-            title: "BBC World",
-            url: URL(string: "https://feeds.bbci.co.uk/news/world/rss.xml")!
+        DragonRSSSourceDescriptor(
+            id: "aljazeera-ar",
+            name: "Al Jazeera Arabic",
+            feedURL: "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
+            language: "ar",
+            category: "general",
+            active: true
         ),
-        DragonRSSFeedDescriptor(
-            title: "Martin Fowler",
-            url: URL(string: "https://martinfowler.com/feed.atom")!
+        DragonRSSSourceDescriptor(
+            id: "aljazeera-en",
+            name: "Al Jazeera English",
+            feedURL: "https://www.aljazeera.com/xml/rss/all.xml",
+            language: "en",
+            category: "general",
+            active: true
         )
     ]
 }
@@ -25,6 +69,7 @@ enum DragonArticlesFeedRegistry {
 enum DragonRSSArticleSourceError: LocalizedError {
     case emptyRegistry
     case noArticlesAvailable([String])
+    case invalidFeedURL(String)
     case invalidResponse(URL)
     case httpStatus(URL, Int)
 
@@ -34,9 +79,11 @@ enum DragonRSSArticleSourceError: LocalizedError {
             return "No RSS feeds are configured."
         case .noArticlesAvailable(let failures):
             if failures.isEmpty {
-                return "No articles were available from the configured feeds."
+                return "No articles were available from the configured RSS feeds."
             }
             return failures.joined(separator: " ")
+        case .invalidFeedURL(let value):
+            return "Invalid RSS feed URL: \(value)"
         case .invalidResponse(let url):
             return "Invalid feed response from \(url.host() ?? url.absoluteString)."
         case .httpStatus(let url, let statusCode):
@@ -47,26 +94,30 @@ enum DragonRSSArticleSourceError: LocalizedError {
 
 final class DragonRSSArticleSource {
     private let session: URLSession
-    private let feeds: [DragonRSSFeedDescriptor]
+    private let feeds: [DragonRSSSourceDescriptor]
     private let parser: DragonRSSParser
+    private let nowProvider: () -> Date
 
     init(
         session: URLSession = .shared,
-        feeds: [DragonRSSFeedDescriptor] = DragonArticlesFeedRegistry.v1Feeds,
-        parser: DragonRSSParser = DragonRSSParser()
+        feeds: [DragonRSSSourceDescriptor] = DragonArticlesFeedRegistry.v1Feeds,
+        parser: DragonRSSParser = DragonRSSParser(),
+        nowProvider: @escaping () -> Date = Date.init
     ) {
         self.session = session
         self.feeds = feeds
         self.parser = parser
+        self.nowProvider = nowProvider
     }
 
-    func fetchArticles(limit: Int) async throws -> DragonArticlesResponse {
-        guard !feeds.isEmpty else {
+    func fetchArticles() async throws -> DragonNativeArticlesFetchResult {
+        let activeFeeds = feeds.filter(\.active)
+        guard !activeFeeds.isEmpty else {
             throw DragonRSSArticleSourceError.emptyRegistry
         }
 
         let outcomes = await withTaskGroup(of: FeedOutcome.self, returning: [FeedOutcome].self) { group in
-            for feed in feeds {
+            for feed in activeFeeds {
                 group.addTask { [session, parser] in
                     await Self.fetchFeed(feed, session: session, parser: parser)
                 }
@@ -82,20 +133,44 @@ final class DragonRSSArticleSource {
         let parsedArticles = outcomes
             .flatMap(\.articles)
             .sorted(by: Self.articleSort)
+        let deduplicatedArticles = deduplicatedArticles(parsedArticles)
+        let validDatedArticles = deduplicatedArticles.filter { $0.publishedAt != nil }
+        let referenceDate = nowProvider()
+        let recentArticles = validDatedArticles.filter {
+            guard let publishedAt = $0.publishedAt else {
+                return false
+            }
 
-        let uniqueArticles = deduplicatedArticles(parsedArticles)
-        let limitedArticles = Array(uniqueArticles.prefix(max(limit, 0)))
+            return publishedAt <= referenceDate
+                && publishedAt >= referenceDate.addingTimeInterval(-86_400)
+        }
 
-        guard !limitedArticles.isEmpty else {
+        guard !recentArticles.isEmpty else {
             let failures = outcomes.compactMap(\.failureMessage)
             throw DragonRSSArticleSourceError.noArticlesAvailable(failures)
         }
 
-        return DragonArticlesResponse(
-            api_version: "rss-v1",
+        let response = DragonArticlesResponse(
+            api_version: "native-rss-v1",
             ok: true,
-            items: limitedArticles.map(Self.makeArticle(from:)),
-            count: limitedArticles.count
+            items: recentArticles.map(Self.makeArticle(from:)),
+            count: recentArticles.count
+        )
+
+        let oldestDisplayedArticleAgeHours = recentArticles.last?.publishedAt.map {
+            referenceDate.timeIntervalSince($0) / 3_600
+        }
+
+        return DragonNativeArticlesFetchResult(
+            response: response,
+            sourceStatuses: outcomes.map(\.status),
+            diagnostics: DragonNativeArticlesDiagnostics(
+                totalFeedsFetched: outcomes.count,
+                totalItemsParsed: parsedArticles.count,
+                totalValidDatedItems: validDatedArticles.count,
+                totalItemsInside24Hours: recentArticles.count,
+                oldestDisplayedArticleAgeHours: oldestDisplayedArticleAgeHours
+            )
         )
     }
 
@@ -129,13 +204,30 @@ final class DragonRSSArticleSource {
     }
 
     private static func fetchFeed(
-        _ feed: DragonRSSFeedDescriptor,
+        _ feed: DragonRSSSourceDescriptor,
         session: URLSession,
         parser: DragonRSSParser
     ) async -> FeedOutcome {
+        let fetchedAt = Date()
+        guard let url = feed.url else {
+            return FeedOutcome(
+                articles: [],
+                failureMessage: DragonRSSArticleSourceError.invalidFeedURL(feed.feedURL).localizedDescription,
+                status: DragonRSSSourceFetchStatus(
+                    sourceID: feed.id,
+                    sourceName: feed.name,
+                    feedURL: feed.feedURL,
+                    status: "invalid_url",
+                    itemCount: 0,
+                    fetchedAt: fetchedAt,
+                    errorMessage: DragonRSSArticleSourceError.invalidFeedURL(feed.feedURL).localizedDescription
+                )
+            )
+        }
+
         do {
             var request = URLRequest(
-                url: feed.url,
+                url: url,
                 cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
                 timeoutInterval: 20
             )
@@ -143,21 +235,64 @@ final class DragonRSSArticleSource {
                 "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
                 forHTTPHeaderField: "Accept"
             )
+            request.setValue(
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+                forHTTPHeaderField: "User-Agent"
+            )
 
             let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw DragonRSSArticleSourceError.invalidResponse(feed.url)
+                throw DragonRSSArticleSourceError.invalidResponse(url)
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                throw DragonRSSArticleSourceError.httpStatus(feed.url, httpResponse.statusCode)
+                throw DragonRSSArticleSourceError.httpStatus(url, httpResponse.statusCode)
             }
 
-            let parsedFeed = try parser.parse(data: data, fallbackFeedTitle: feed.title)
-            return FeedOutcome(articles: parsedFeed.articles, failureMessage: nil)
+            let parsedFeed = try parser.parse(data: data, fallbackFeedTitle: feed.name)
+            let normalizedArticles = parsedFeed.articles.map { article in
+                DragonParsedArticle(
+                    id: article.id,
+                    title: article.title,
+                    link: article.link,
+                    source: feed.name,
+                    publishedAt: article.publishedAt,
+                    summary: article.summary,
+                    summaryHTML: article.summaryHTML,
+                    contentHTML: article.contentHTML,
+                    imageURL: article.imageURL,
+                    videoURL: article.videoURL
+                )
+            }
+
+            return FeedOutcome(
+                articles: normalizedArticles,
+                failureMessage: nil,
+                status: DragonRSSSourceFetchStatus(
+                    sourceID: feed.id,
+                    sourceName: feed.name,
+                    feedURL: feed.feedURL,
+                    status: "success",
+                    itemCount: normalizedArticles.count,
+                    fetchedAt: fetchedAt,
+                    errorMessage: nil
+                )
+            )
         } catch {
-            return FeedOutcome(articles: [], failureMessage: error.localizedDescription)
+            return FeedOutcome(
+                articles: [],
+                failureMessage: error.localizedDescription,
+                status: DragonRSSSourceFetchStatus(
+                    sourceID: feed.id,
+                    sourceName: feed.name,
+                    feedURL: feed.feedURL,
+                    status: "failed",
+                    itemCount: 0,
+                    fetchedAt: fetchedAt,
+                    errorMessage: error.localizedDescription
+                )
+            )
         }
     }
 
@@ -184,11 +319,27 @@ final class DragonRSSArticleSource {
             title: article.title,
             source: article.source,
             url: article.link,
+            original_url: article.link,
+            canonical_url: article.link,
             published_at: article.publishedAt.map { publishedISO8601Formatter.string(from: $0) } ?? "",
             saved_at: "",
             excerpt: article.summary,
+            image: article.imageURL,
+            thumbnail: article.imageURL,
+            media_url: article.videoURL,
+            video_url: article.videoURL,
+            video_embed_url: article.videoURL,
             status: "",
-            read_state: ""
+            read_state: "",
+            fulltext_status: DragonArticleFulltextStatus(
+                status: "native_rss_preview",
+                display_label: "",
+                display_message: "",
+                next_action: "load_full_article",
+                safe_error: ""
+            ),
+            content_text: "",
+            content_html: article.contentHTML.isEmpty ? article.summaryHTML : article.contentHTML
         )
     }
 
@@ -202,4 +353,5 @@ final class DragonRSSArticleSource {
 private struct FeedOutcome: Sendable {
     let articles: [DragonParsedArticle]
     let failureMessage: String?
+    let status: DragonRSSSourceFetchStatus
 }
