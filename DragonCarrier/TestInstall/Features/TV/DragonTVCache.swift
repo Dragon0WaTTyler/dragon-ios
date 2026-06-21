@@ -80,8 +80,8 @@ actor DragonTVCacheStore {
         var components = URLComponents()
         components.scheme = "dragon-cache"
         components.host = "tv"
-        components.path = "/working-channels-v1"
-        return components.url ?? URL(string: "dragon-cache://tv/working-channels-v1")!
+        components.path = "/working-channels-v3"
+        return components.url ?? URL(string: "dragon-cache://tv/working-channels-v3")!
     }
 
     private func cacheRecordURL() throws -> URL {

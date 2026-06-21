@@ -63,7 +63,12 @@ struct DragonTVView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isLoading && viewModel.channels.isEmpty {
+        let visibleChannels = viewModel.visibleChannels
+        let supplementalChannels = viewModel.visibleSupplementalChannels
+        let hasVisibleContent = !visibleChannels.isEmpty || !supplementalChannels.isEmpty
+        let hasAnyContent = !viewModel.channels.isEmpty || !supplementalChannels.isEmpty
+
+        if viewModel.isLoading && !hasAnyContent {
             DragonTVStateCard(
                 title: "Loading TV",
                 message: "Fetching playlists, removing duplicates, and testing reachable streams."
@@ -71,7 +76,7 @@ struct DragonTVView: View {
                 ProgressView()
                     .tint(.white)
             }
-        } else if viewModel.channels.isEmpty {
+        } else if !hasAnyContent {
             DragonTVStateCard(
                 title: "No Channels Yet",
                 message: "No reachable channels are cached right now. Refresh to run a new scan."
@@ -86,7 +91,7 @@ struct DragonTVView: View {
                 .background(DragonTheme.red)
                 .clipShape(Capsule())
             }
-        } else if viewModel.visibleChannels.isEmpty {
+        } else if !hasVisibleContent {
             DragonTVStateCard(
                 title: "No Matches",
                 message: "Try a different search or switch to another TV filter."
@@ -106,7 +111,7 @@ struct DragonTVView: View {
             }
         } else {
             LazyVStack(spacing: 12) {
-                ForEach(viewModel.visibleChannels) { channel in
+                ForEach(visibleChannels) { channel in
                     DragonTVChannelRow(
                         channel: channel,
                         onSelect: {
@@ -116,6 +121,27 @@ struct DragonTVView: View {
                             viewModel.toggleFavorite(channel)
                         }
                     )
+                }
+
+                if !supplementalChannels.isEmpty {
+                    DragonTVStateCard(
+                        title: "Sports Discovery",
+                        message: "These sports and beIN-related matches were parsed from playlists but skipped by preflight validation. You can still try opening them in the native fullscreen player."
+                    ) {
+                        EmptyView()
+                    }
+
+                    ForEach(supplementalChannels) { channel in
+                        DragonTVChannelRow(
+                            channel: channel,
+                            onSelect: {
+                                selectedChannel = channel
+                            },
+                            onToggleFavorite: {
+                                viewModel.toggleFavorite(channel)
+                            }
+                        )
+                    }
                 }
             }
         }

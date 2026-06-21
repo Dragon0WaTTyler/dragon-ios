@@ -9,6 +9,8 @@ final class DragonTVViewModel: ObservableObject {
     @Published private(set) var validChannelCount: Int
     @Published private(set) var failedSourceCount: Int
     @Published private(set) var sourceFailures: [IPTVSourceFailure]
+    @Published private(set) var sourceDiagnostics: [IPTVSourceDiagnostic]
+    @Published private(set) var interestingChannelDiagnostics: [IPTVInterestingChannelDiagnostic]
     @Published private(set) var isLoading: Bool
     @Published private(set) var statusText: String
     @Published private(set) var lastUpdatedAt: Date?
@@ -30,6 +32,8 @@ final class DragonTVViewModel: ObservableObject {
         initialValidChannelCount: Int = 0,
         initialFailedSourceCount: Int = 0,
         initialSourceFailures: [IPTVSourceFailure] = [],
+        initialSourceDiagnostics: [IPTVSourceDiagnostic] = [],
+        initialInterestingChannelDiagnostics: [IPTVInterestingChannelDiagnostic] = [],
         initialIsLoading: Bool = false,
         initialStatusText: String = "",
         initialLastUpdatedAt: Date? = nil,
@@ -48,6 +52,8 @@ final class DragonTVViewModel: ObservableObject {
         self.validChannelCount = initialValidChannelCount
         self.failedSourceCount = initialFailedSourceCount
         self.sourceFailures = initialSourceFailures
+        self.sourceDiagnostics = initialSourceDiagnostics
+        self.interestingChannelDiagnostics = initialInterestingChannelDiagnostics
         self.isLoading = initialIsLoading
         self.statusText = initialStatusText
         self.lastUpdatedAt = initialLastUpdatedAt
@@ -84,12 +90,101 @@ final class DragonTVViewModel: ObservableObject {
         }
     }
 
+    var visibleSupplementalChannels: [IPTVChannel] {
+        let normalizedSearch = searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let shouldRevealSupplementalChannels =
+            selectedFilter == .sports ||
+            Self.diagnosticSearchKeywords.contains { normalizedSearch.contains($0) }
+
+        guard shouldRevealSupplementalChannels else {
+            return []
+        }
+
+        let primaryChannelIDs = Set(channels.map(\.id))
+
+        return interestingChannelDiagnostics.compactMap { diagnostic in
+            guard diagnostic.status == .parsedButFailedValidation,
+                  !primaryChannelIDs.contains(diagnostic.channelID) else {
+                return nil
+            }
+
+            let channel = IPTVChannel(
+                id: diagnostic.channelID,
+                name: diagnostic.name,
+                url: diagnostic.streamURL,
+                tvgId: nil,
+                group: diagnostic.group,
+                logo: diagnostic.logoURL,
+                httpUserAgent: diagnostic.httpUserAgent,
+                sourceURLs: diagnostic.sourceURLs,
+                isFavorite: favoriteIDs.contains(diagnostic.channelID)
+            )
+
+            guard selectedFilter.matches(channel) else {
+                return nil
+            }
+
+            guard !normalizedSearch.isEmpty else {
+                return channel
+            }
+
+            let searchableValues = [
+                channel.name,
+                channel.group ?? "",
+                channel.tvgId ?? "",
+                channel.sourceSummary,
+                channel.hostLabel
+            ]
+            .joined(separator: " ")
+            .lowercased()
+
+            return searchableValues.contains(normalizedSearch) ? channel : nil
+        }
+    }
+
+    private static let diagnosticSearchKeywords: [String] = [
+        "arryadia",
+        "al kass",
+        "alkass",
+        "ksa sports",
+        "sharjah sports",
+        "bahrain sports",
+        "ktv sport",
+        "oman sports",
+        "iraqia sport",
+        "sport",
+        "sports",
+        "bein"
+    ]
+
     var favoriteCount: Int {
         channels.filter(\.isFavorite).count
     }
 
     var channelCountLabel: String {
         "\(validChannelCount) working"
+    }
+
+    var downloadedSourceCount: Int {
+        sourceDiagnostics.filter(\.downloadSucceeded).count
+    }
+
+    var totalSourceCount: Int {
+        sourceDiagnostics.count
+    }
+
+    var interestingParsedCount: Int {
+        interestingChannelDiagnostics.count
+    }
+
+    var interestingWorkingCount: Int {
+        interestingChannelDiagnostics.filter { $0.status == .validatedWorking }.count
+    }
+
+    var interestingFailedCount: Int {
+        interestingChannelDiagnostics.filter { $0.status == .parsedButFailedValidation }.count
     }
 
     func loadCachedThenRefreshIfNeeded() async {
@@ -103,12 +198,9 @@ final class DragonTVViewModel: ObservableObject {
         if let cachedResult = await dataSource.loadCachedChannels() {
             apply(report: cachedResult.report, updatedAt: cachedResult.cachedAt)
             statusText = cachedResult.report.channels.isEmpty
-                ? "TV cache is empty. Refresh to fetch playlists."
-                : "Showing cached channels. Refresh when you want a fresh scan."
-
-            if cachedResult.report.channels.isEmpty {
-                await refresh()
-            }
+                ? "TV cache is empty. Refreshing playlists now."
+                : "Showing cached channels while refreshing playlists."
+            await refresh()
         } else {
             statusText = "No TV cache yet. Loading public playlists."
             await refresh()
@@ -170,6 +262,8 @@ final class DragonTVViewModel: ObservableObject {
         validChannelCount = report.validChannelCount
         failedSourceCount = report.sourceFailures.count
         sourceFailures = report.sourceFailures
+        sourceDiagnostics = report.sourceDiagnostics
+        interestingChannelDiagnostics = report.interestingChannelDiagnostics
         lastUpdatedAt = updatedAt
     }
 }

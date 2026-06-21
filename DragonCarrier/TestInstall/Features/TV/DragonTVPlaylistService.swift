@@ -54,6 +54,20 @@ struct IPTVPlaylistService: Sendable {
     private let requestTimeout: TimeInterval
     private let validationBatchSize: Int
     private let allowsRangeFallback: Bool
+    private let interestingKeywords = [
+        "arryadia",
+        "al kass",
+        "alkass",
+        "ksa sports",
+        "sharjah sports",
+        "bahrain sports",
+        "ktv sport",
+        "oman sports",
+        "iraqia sport",
+        "sport",
+        "sports",
+        "bein"
+    ]
 
     init(
         session: URLSession = IPTVPlaylistService.makeSession(),
@@ -78,14 +92,36 @@ struct IPTVPlaylistService: Sendable {
         let playlistResults = await fetchPlaylistResults(from: sources)
         let rawChannels = playlistResults.flatMap(\.channels)
         let dedupedChannels = deduplicate(rawChannels)
-        let validatedChannels = await validate(channels: dedupedChannels)
-        let sourceFailures = playlistResults.compactMap(\.failure)
+        let validationOutcomes = await validate(channels: dedupedChannels)
+        let validatedChannels = validationOutcomes.compactMap(\.validatedChannel)
+        let sourceDiagnostics = buildSourceDiagnostics(
+            from: playlistResults,
+            validatedChannels: validatedChannels
+        )
+        let sourceFailures: [IPTVSourceFailure] = sourceDiagnostics.compactMap { diagnostic in
+            guard let errorMessage = diagnostic.errorMessage else {
+                return nil
+            }
+
+            return IPTVSourceFailure(
+                sourceID: diagnostic.sourceID,
+                label: diagnostic.label,
+                url: diagnostic.url,
+                message: errorMessage
+            )
+        }
+        let interestingChannelDiagnostics = buildInterestingChannelDiagnostics(
+            from: dedupedChannels,
+            validationOutcomes: validationOutcomes
+        )
 
         return IPTVLoadReport(
             rawChannelCount: rawChannels.count,
             dedupedChannelCount: dedupedChannels.count,
             validChannelCount: validatedChannels.count,
             sourceFailures: sourceFailures,
+            sourceDiagnostics: sourceDiagnostics,
+            interestingChannelDiagnostics: interestingChannelDiagnostics,
             channels: validatedChannels
         )
     }
@@ -117,12 +153,8 @@ struct IPTVPlaylistService: Sendable {
                 return PlaylistFetchResult(
                     source: source,
                     channels: [],
-                    failure: IPTVSourceFailure(
-                        sourceID: source.id,
-                        label: source.label,
-                        url: source.url,
-                        message: "Invalid response"
-                    )
+                    downloadSucceeded: false,
+                    errorMessage: "Invalid response"
                 )
             }
 
@@ -130,30 +162,34 @@ struct IPTVPlaylistService: Sendable {
                 return PlaylistFetchResult(
                     source: source,
                     channels: [],
-                    failure: IPTVSourceFailure(
-                        sourceID: source.id,
-                        label: source.label,
-                        url: source.url,
-                        message: "HTTP \(httpResponse.statusCode)"
-                    )
+                    downloadSucceeded: false,
+                    errorMessage: "HTTP \(httpResponse.statusCode)"
                 )
+            }
+
+            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
+            let parsedChannels = parseChannels(from: data, source: source)
+            let channels: [IPTVChannel]
+
+            if parsedChannels.isEmpty,
+               let directChannel = makeDirectSourceChannelIfNeeded(source: source, contentType: contentType) {
+                channels = [directChannel]
+            } else {
+                channels = parsedChannels
             }
 
             return PlaylistFetchResult(
                 source: source,
-                channels: parseChannels(from: data, source: source),
-                failure: nil
+                channels: channels,
+                downloadSucceeded: true,
+                errorMessage: nil
             )
         } catch {
             return PlaylistFetchResult(
                 source: source,
                 channels: [],
-                failure: IPTVSourceFailure(
-                    sourceID: source.id,
-                    label: source.label,
-                    url: source.url,
-                    message: error.localizedDescription
-                )
+                downloadSucceeded: false,
+                errorMessage: error.localizedDescription
             )
         }
     }
@@ -205,6 +241,7 @@ struct IPTVPlaylistService: Sendable {
                     tvgId: normalizedTvgID,
                     group: pendingMetadata?.group?.dragonTrimmedOrNil,
                     logo: pendingMetadata?.logoURL,
+                    httpUserAgent: pendingMetadata?.httpUserAgent?.dragonTrimmedOrNil,
                     sourceURLs: [source.url],
                     isFavorite: false
                 )
@@ -236,7 +273,8 @@ struct IPTVPlaylistService: Sendable {
             name: nameSegment.trimmingCharacters(in: .whitespacesAndNewlines),
             tvgId: attributes["tvg-id"],
             group: attributes["group-title"],
-            logoURL: logoURL
+            logoURL: logoURL,
+            httpUserAgent: attributes["http-user-agent"]
         )
     }
 
@@ -280,79 +318,250 @@ struct IPTVPlaylistService: Sendable {
         return deduped
     }
 
-    private func validate(channels: [IPTVChannel]) async -> [IPTVChannel] {
-        var validChannels: [IPTVChannel] = []
+    private func validate(channels: [IPTVChannel]) async -> [ChannelValidationOutcome] {
+        var validationOutcomes: [ChannelValidationOutcome] = []
 
         for batch in channels.chunked(into: validationBatchSize) {
-            let batchResults = await withTaskGroup(of: IPTVChannel?.self, returning: [IPTVChannel].self) { group in
+            let batchResults = await withTaskGroup(of: ChannelValidationOutcome.self, returning: [ChannelValidationOutcome].self) { group in
                 for channel in batch {
                     group.addTask {
-                        let isReachable = await validateReachability(of: channel.url)
-                        return isReachable ? channel : nil
+                        await validateReachability(of: channel)
                     }
                 }
 
-                var workingChannels: [IPTVChannel] = []
+                var outcomes: [ChannelValidationOutcome] = []
                 for await result in group {
-                    if let result {
-                        workingChannels.append(result)
-                    }
+                    outcomes.append(result)
                 }
-                return workingChannels
+                return outcomes
             }
 
             let ordering = Dictionary(uniqueKeysWithValues: batch.enumerated().map { ($1.id, $0) })
-            validChannels.append(contentsOf: batchResults.sorted { left, right in
-                (ordering[left.id] ?? 0) < (ordering[right.id] ?? 0)
+            validationOutcomes.append(contentsOf: batchResults.sorted { left, right in
+                (ordering[left.channel.id] ?? 0) < (ordering[right.channel.id] ?? 0)
             })
         }
 
-        return validChannels
+        return validationOutcomes
     }
 
-    private func validateReachability(of url: URL) async -> Bool {
+    private func validateReachability(of channel: IPTVChannel) async -> ChannelValidationOutcome {
+        let url = channel.url
+
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return false
+            return ChannelValidationOutcome(
+                channel: channel,
+                isReachable: false,
+                statusCode: nil,
+                errorMessage: "Unsupported stream scheme"
+            )
         }
 
-        let headResult = await makeValidationRequest(url: url, method: "HEAD", rangeValue: nil)
+        let headResult = await makeValidationRequest(
+            url: url,
+            method: "HEAD",
+            rangeValue: nil,
+            userAgent: channel.httpUserAgent
+        )
         if headResult.isAccepted {
-            return true
+            return ChannelValidationOutcome(
+                channel: channel,
+                isReachable: true,
+                statusCode: headResult.statusCode,
+                errorMessage: nil
+            )
         }
 
         guard allowsRangeFallback,
               let statusCode = headResult.statusCode,
-              [403, 405, 501].contains(statusCode) else {
-            return false
+              [403, 405, 406, 501].contains(statusCode) else {
+            return ChannelValidationOutcome(
+                channel: channel,
+                isReachable: false,
+                statusCode: headResult.statusCode,
+                errorMessage: headResult.failureDescription
+            )
         }
 
-        let fallbackResult = await makeValidationRequest(url: url, method: "GET", rangeValue: "bytes=0-1")
-        return fallbackResult.isAccepted
+        let fallbackResult = await makeValidationRequest(
+            url: url,
+            method: "GET",
+            rangeValue: "bytes=0-1",
+            userAgent: channel.httpUserAgent
+        )
+        if fallbackResult.isAccepted {
+            return ChannelValidationOutcome(
+                channel: channel,
+                isReachable: true,
+                statusCode: fallbackResult.statusCode,
+                errorMessage: nil
+            )
+        }
+
+        let fallbackMessage = fallbackResult.failureDescription ?? headResult.failureDescription
+        return ChannelValidationOutcome(
+            channel: channel,
+            isReachable: false,
+            statusCode: fallbackResult.statusCode ?? headResult.statusCode,
+            errorMessage: fallbackMessage.map { "HEAD fallback failed: \($0)" } ?? "HEAD fallback failed"
+        )
     }
 
-    private func makeValidationRequest(url: URL, method: String, rangeValue: String?) async -> ValidationResult {
+    private func makeValidationRequest(
+        url: URL,
+        method: String,
+        rangeValue: String?,
+        userAgent: String?
+    ) async -> ValidationResult {
         do {
             var request = URLRequest(url: url)
             request.httpMethod = method
             request.timeoutInterval = requestTimeout
-            request.setValue("DragonTV/1.0", forHTTPHeaderField: "User-Agent")
+            request.setValue(userAgent?.dragonTrimmedOrNil ?? "DragonTV/1.0", forHTTPHeaderField: "User-Agent")
             if let rangeValue {
                 request.setValue(rangeValue, forHTTPHeaderField: "Range")
             }
 
             let (_, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                return ValidationResult(statusCode: nil, contentType: nil, isAccepted: false)
+                return ValidationResult(
+                    method: method,
+                    statusCode: nil,
+                    contentType: nil,
+                    isAccepted: false,
+                    errorMessage: "Invalid response"
+                )
             }
 
             return ValidationResult(
+                method: method,
                 statusCode: httpResponse.statusCode,
                 contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
-                isAccepted: isAcceptableValidationResponse(httpResponse)
+                isAccepted: isAcceptableValidationResponse(httpResponse),
+                errorMessage: nil
             )
         } catch {
-            return ValidationResult(statusCode: nil, contentType: nil, isAccepted: false)
+            return ValidationResult(
+                method: method,
+                statusCode: nil,
+                contentType: nil,
+                isAccepted: false,
+                errorMessage: error.localizedDescription
+            )
         }
+    }
+
+    private func makeDirectSourceChannelIfNeeded(source: IPTVPlaylistSource, contentType: String?) -> IPTVChannel? {
+        guard isLikelyDirectStream(contentType: contentType, url: source.url) else {
+            return nil
+        }
+
+        return IPTVChannel(
+            id: Self.dedupeKey(name: source.label, url: source.url, tvgId: source.id),
+            name: source.label,
+            url: source.url,
+            tvgId: source.id,
+            group: "Direct Source",
+            logo: nil,
+            httpUserAgent: nil,
+            sourceURLs: [source.url],
+            isFavorite: false
+        )
+    }
+
+    private func isLikelyDirectStream(contentType: String?, url _: URL) -> Bool {
+        let normalizedContentType = contentType?.lowercased() ?? ""
+        if normalizedContentType.hasPrefix("video/") || normalizedContentType.hasPrefix("audio/") {
+            return true
+        }
+
+        if normalizedContentType.contains("mpegurl")
+            || normalizedContentType.contains("m3u8")
+            || normalizedContentType.contains("application/octet-stream") {
+            return true
+        }
+
+        return false
+    }
+
+    private func buildSourceDiagnostics(
+        from playlistResults: [PlaylistFetchResult],
+        validatedChannels: [IPTVChannel]
+    ) -> [IPTVSourceDiagnostic] {
+        let validCountByURL = Dictionary(
+            grouping: validatedChannels.flatMap { channel in
+                channel.sourceURLs.map { ($0.absoluteString, channel.id) }
+            },
+            by: \.0
+        )
+        .mapValues { pairs in
+            Set(pairs.map(\.1)).count
+        }
+
+        return playlistResults
+            .sorted { $0.source.label.localizedCaseInsensitiveCompare($1.source.label) == .orderedAscending }
+            .map { result in
+                let interestingMatchCount = result.channels.filter { matchedKeywords(for: $0).isEmpty == false }.count
+                return IPTVSourceDiagnostic(
+                    sourceID: result.source.id,
+                    label: result.source.label,
+                    url: result.source.url,
+                    downloadSucceeded: result.downloadSucceeded,
+                    parsedChannelCount: result.channels.count,
+                    validChannelCount: validCountByURL[result.source.url.absoluteString] ?? 0,
+                    interestingMatchCount: interestingMatchCount,
+                    errorMessage: result.errorMessage
+                )
+            }
+    }
+
+    private func buildInterestingChannelDiagnostics(
+        from channels: [IPTVChannel],
+        validationOutcomes: [ChannelValidationOutcome]
+    ) -> [IPTVInterestingChannelDiagnostic] {
+        let validationByChannelID = Dictionary(uniqueKeysWithValues: validationOutcomes.map { ($0.channel.id, $0) })
+
+        return channels.compactMap { channel in
+            let keywords = matchedKeywords(for: channel)
+            guard !keywords.isEmpty, let validation = validationByChannelID[channel.id] else {
+                return nil
+            }
+
+            return IPTVInterestingChannelDiagnostic(
+                channelID: channel.id,
+                name: channel.name,
+                streamURL: channel.url,
+                group: channel.group,
+                logoURL: channel.logo,
+                httpUserAgent: channel.httpUserAgent,
+                matchedKeywords: keywords,
+                sourceLabels: channel.sourceLabels(),
+                sourceURLs: channel.sourceURLs,
+                status: validation.isReachable ? .validatedWorking : .parsedButFailedValidation,
+                statusCode: validation.statusCode,
+                errorMessage: validation.errorMessage
+            )
+        }
+        .sorted { left, right in
+            if left.status != right.status {
+                return left.status == .validatedWorking
+            }
+
+            return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+        }
+    }
+
+    private func matchedKeywords(for channel: IPTVChannel) -> [String] {
+        let haystack = [
+            channel.name,
+            channel.group ?? "",
+            channel.tvgId ?? "",
+            channel.sourceSummary
+        ]
+        .joined(separator: " ")
+        .lowercased()
+
+        return interestingKeywords.filter { haystack.contains($0) }
     }
 
     private func isAcceptableValidationResponse(_ response: HTTPURLResponse) -> Bool {
@@ -427,7 +636,19 @@ struct IPTVPlaylistService: Sendable {
 private struct PlaylistFetchResult: Sendable {
     let source: IPTVPlaylistSource
     let channels: [IPTVChannel]
-    let failure: IPTVSourceFailure?
+    let downloadSucceeded: Bool
+    let errorMessage: String?
+}
+
+private struct ChannelValidationOutcome: Sendable {
+    let channel: IPTVChannel
+    let isReachable: Bool
+    let statusCode: Int?
+    let errorMessage: String?
+
+    var validatedChannel: IPTVChannel? {
+        isReachable ? channel : nil
+    }
 }
 
 private struct ParsedChannelMetadata: Sendable {
@@ -435,12 +656,31 @@ private struct ParsedChannelMetadata: Sendable {
     let tvgId: String?
     let group: String?
     let logoURL: URL?
+    let httpUserAgent: String?
 }
 
 private struct ValidationResult: Sendable {
+    let method: String
     let statusCode: Int?
     let contentType: String?
     let isAccepted: Bool
+    let errorMessage: String?
+
+    var failureDescription: String? {
+        if let errorMessage, !errorMessage.isEmpty {
+            return "\(method) \(errorMessage)"
+        }
+
+        if let statusCode {
+            if let contentType, !contentType.isEmpty {
+                return "\(method) HTTP \(statusCode) (\(contentType))"
+            }
+
+            return "\(method) HTTP \(statusCode)"
+        }
+
+        return nil
+    }
 }
 
 private extension Array {
