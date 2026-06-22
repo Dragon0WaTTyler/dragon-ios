@@ -98,7 +98,7 @@ final class DragonMoviesViewModel: ObservableObject {
             lastUpdatedAt = nil
             state = .loading
             loadSource = .empty
-            backendURLText = normalizeDragonBackendBaseURL(currentDragonBackendBaseURL()) ?? dragonDefaultBackendBaseURL
+            backendURLText = dataSource.sourceLabel
             statusText = sourceStatusLine(
                 source: .empty,
                 movieCount: 0,
@@ -200,7 +200,7 @@ final class DragonMoviesViewModel: ObservableObject {
                 state = .partialLoaded(message)
             } else {
                 loadSource = .empty
-                backendURLText = normalizeDragonBackendBaseURL(currentDragonBackendBaseURL()) ?? dragonDefaultBackendBaseURL
+                backendURLText = dataSource.sourceLabel
                 statusText = sourceStatusLine(
                     source: .empty,
                     movieCount: 0,
@@ -240,7 +240,7 @@ final class DragonMoviesViewModel: ObservableObject {
         ]
 
         if !backendURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            parts.append("Backend: \(backendURL)")
+            parts.append("Location: \(backendURL)")
         }
 
         if let detail, !detail.isEmpty {

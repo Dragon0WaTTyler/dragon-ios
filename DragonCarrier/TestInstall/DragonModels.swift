@@ -1094,31 +1094,52 @@ struct DragonMovie: Codable, Identifiable {
     let title: String
     let year: String
     let poster: String
+    let director: String
+    let genres: [String]
     let status: String
     let score: String
     let type: String
     let overview: String
+    let tmdb_id: String
 
     private enum CodingKeys: String, CodingKey {
         case id
         case title
         case year
         case poster
+        case director
+        case genres
         case status
         case score
         case type
         case overview
+        case tmdb_id
     }
 
-    init(id: String, title: String, year: String, poster: String, status: String, score: String, type: String, overview: String) {
+    init(
+        id: String,
+        title: String,
+        year: String,
+        poster: String,
+        director: String = "",
+        genres: [String] = [],
+        status: String,
+        score: String,
+        type: String,
+        overview: String,
+        tmdb_id: String = ""
+    ) {
         self.id = id
         self.title = title
         self.year = year
         self.poster = poster
+        self.director = director
+        self.genres = genres
         self.status = status
         self.score = score
         self.type = type
         self.overview = overview
+        self.tmdb_id = tmdb_id
     }
 
     init(from decoder: Decoder) throws {
@@ -1127,14 +1148,21 @@ struct DragonMovie: Codable, Identifiable {
         self.title = DragonMovie.decodeString(container, forKey: .title)
         self.year = DragonMovie.decodeString(container, forKey: .year)
         self.poster = DragonMovie.decodeString(container, forKey: .poster)
+        self.director = DragonMovie.decodeString(container, forKey: .director)
+        self.genres = DragonMovie.decodeStringArray(container, forKey: .genres)
         self.status = DragonMovie.decodeString(container, forKey: .status)
         self.score = DragonMovie.decodeString(container, forKey: .score)
         self.type = DragonMovie.decodeString(container, forKey: .type)
         self.overview = DragonMovie.decodeString(container, forKey: .overview)
+        self.tmdb_id = DragonMovie.decodeString(container, forKey: .tmdb_id)
     }
 
     var posterURL: URL? {
         Self.sanitizedPosterURL(from: poster)
+    }
+
+    var genresText: String {
+        genres.joined(separator: ", ")
     }
 
     private static func decodeString(_ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String {
@@ -1158,6 +1186,22 @@ struct DragonMovie: Codable, Identifiable {
         }
 
         return ""
+    }
+
+    private static func decodeStringArray(_ container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> [String] {
+        if let values = try? container.decode([String].self, forKey: key) {
+            return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+
+        let fallbackString = decodeString(container, forKey: key)
+        guard !fallbackString.isEmpty else {
+            return []
+        }
+
+        return fallbackString
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private static func sanitizedPosterURL(from value: String) -> URL? {

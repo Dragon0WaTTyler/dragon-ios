@@ -317,6 +317,10 @@ func dragonUserFacingMessage(for error: Error) -> String {
         return dragonUserFacingMessage(for: remoteSnapshotClientError)
     }
 
+    if let notionError = error as? DragonNotionMoviesDataSourceError {
+        return dragonUserFacingMessage(for: notionError)
+    }
+
     if let urlError = error as? URLError {
         return dragonUserFacingMessage(for: urlError)
     }
@@ -356,6 +360,26 @@ func dragonUserFacingMessage(for remoteSnapshotClientError: DragonRemoteSnapshot
     case .invalidHTTPResponse:
         return "Remote Dragon snapshot replied unexpectedly."
     case .httpStatus(let statusCode):
+        return dragonUserFacingMessage(forHTTPStatus: statusCode)
+    }
+}
+
+func dragonUserFacingMessage(for notionError: DragonNotionMoviesDataSourceError) -> String {
+    switch notionError {
+    case .missingToken:
+        return "Notion token is not configured."
+    case .missingSourceIdentifier:
+        return "Notion source ID is not configured."
+    case .invalidResponse:
+        return "Notion replied unexpectedly."
+    case .dataSourceNotFound:
+        return "Notion source could not be found."
+    case .databaseHasNoDataSources:
+        return "Notion database has no data source."
+    case .httpStatus(let statusCode, let message):
+        if !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return message
+        }
         return dragonUserFacingMessage(forHTTPStatus: statusCode)
     }
 }

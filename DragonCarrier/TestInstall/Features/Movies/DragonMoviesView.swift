@@ -129,8 +129,11 @@ struct DragonMoviesView: View {
             [
                 movie.title,
                 movie.year,
+                movie.director,
+                movie.genresText,
                 movie.status,
                 movie.score,
+                movie.tmdb_id,
                 movie.type,
                 movie.overview
             ].contains { normalizedSearchText($0).contains(query) }

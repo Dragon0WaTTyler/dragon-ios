@@ -34,6 +34,15 @@ struct MovieDetailView: View {
 
                     InfoBlock(title: "Status", value: movie.status)
                     InfoBlock(title: "Score", value: movie.score)
+                    if !movie.director.isEmpty {
+                        InfoBlock(title: "Director", value: movie.director)
+                    }
+                    if !movie.genres.isEmpty {
+                        InfoBlock(title: "Genres", value: movie.genresText)
+                    }
+                    if !movie.tmdb_id.isEmpty {
+                        InfoBlock(title: "TMDB ID", value: movie.tmdb_id)
+                    }
                     InfoBlock(title: "Overview", value: movie.overview.isEmpty ? "No overview available." : movie.overview)
                 }
                 .padding(24)

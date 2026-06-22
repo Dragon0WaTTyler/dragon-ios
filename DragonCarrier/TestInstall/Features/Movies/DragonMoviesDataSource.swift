@@ -2,6 +2,7 @@ import Foundation
 
 enum DragonMoviesLoadSource: String, Codable {
     case api
+    case notion
     case cache
     case bundledSnapshot
     case failedUsingCache
@@ -10,7 +11,9 @@ enum DragonMoviesLoadSource: String, Codable {
     var displayLabel: String {
         switch self {
         case .api:
-            return "API"
+            return "Legacy API"
+        case .notion:
+            return "Notion"
         case .cache:
             return "Cache"
         case .bundledSnapshot:
@@ -40,6 +43,8 @@ struct DragonMoviesRefreshResult {
 }
 
 protocol DragonMoviesDataSource {
+    var sourceLabel: String { get }
+
     func loadCachedMovies(pageLimit: Int, maxCatalogCount: Int) async -> DragonCachedMoviesResult?
     func refreshMovies(pageLimit: Int, maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult
     func loadBundledFallback(maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult?
@@ -49,9 +54,17 @@ protocol DragonMoviesPagingClient {
     func fetchMovies(limit: Int, offset: Int, allowsCaching: Bool) async throws -> DragonAPIFetchResult<DragonMoviesResponse>
 }
 
+protocol DragonMoviesRemoteCatalogLoader {
+    var isConfigured: Bool { get }
+    var cacheIdentity: String { get }
+    var fallbackSourceLabel: String { get }
+
+    func refreshMovies(pageLimit: Int, maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult
+}
+
 extension DragonAPIClient: DragonMoviesPagingClient {}
 
-private enum DragonMoviesDataSourceError: LocalizedError {
+enum DragonMoviesDataSourceError: LocalizedError {
     case backendReturnedNotOK
 
     var errorDescription: String? {
@@ -63,23 +76,23 @@ private enum DragonMoviesDataSourceError: LocalizedError {
 }
 
 final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
-    private let client: DragonMoviesPagingClient
+    private let notionLoader: DragonMoviesRemoteCatalogLoader
+    private let legacyLoader: DragonMoviesRemoteCatalogLoader
     private let snapshotFallback: DragonMoviesFetching?
     private let responseCache: DragonResponseCache
-    private let backendBaseURLProvider: () -> String
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     init(
-        client: DragonMoviesPagingClient = DragonAPIClient.shared,
+        notionLoader: DragonMoviesRemoteCatalogLoader = DragonNotionMoviesDataSource(),
+        legacyLoader: DragonMoviesRemoteCatalogLoader = DragonLegacyAPIMoviesDataSource(),
         snapshotFallback: DragonMoviesFetching? = DragonBundledSnapshotDataSource.shared,
-        responseCache: DragonResponseCache = .shared,
-        backendBaseURLProvider: @escaping () -> String = currentDragonBackendBaseURL
+        responseCache: DragonResponseCache = .shared
     ) {
-        self.client = client
+        self.notionLoader = notionLoader
+        self.legacyLoader = legacyLoader
         self.snapshotFallback = snapshotFallback
         self.responseCache = responseCache
-        self.backendBaseURLProvider = backendBaseURLProvider
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -91,8 +104,12 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
     }
 
     func loadCachedMovies(pageLimit: Int, maxCatalogCount: Int) async -> DragonCachedMoviesResult? {
-        let backendURL = resolvedBackendBaseURL()
-        let cacheURL = cacheURL(pageLimit: pageLimit, maxCatalogCount: maxCatalogCount, backendURL: backendURL)
+        let loader = activeLoader()
+        let cacheURL = dragonMoviesCacheURL(
+            pageLimit: pageLimit,
+            maxCatalogCount: maxCatalogCount,
+            cacheIdentity: loader.cacheIdentity
+        )
 
         guard let cachedResponse = await responseCache.load(for: cacheURL),
               let payload = try? decoder.decode(DragonCachedMoviesPayload.self, from: cachedResponse.data) else {
@@ -109,19 +126,16 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
     }
 
     func refreshMovies(pageLimit: Int, maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult {
-        let backendURL = resolvedBackendBaseURL()
-        let result = try await refreshFromAPI(
-            pageLimit: pageLimit,
-            maxCatalogCount: maxCatalogCount,
-            backendURL: backendURL
-        )
+        let loader = activeLoader()
+        let result = try await loader.refreshMovies(pageLimit: pageLimit, maxCatalogCount: maxCatalogCount)
 
         if !result.response.items.isEmpty {
             await save(
                 response: result.response,
                 pageLimit: pageLimit,
                 maxCatalogCount: maxCatalogCount,
-                backendURL: backendURL,
+                cacheIdentity: loader.cacheIdentity,
+                backendURL: result.backendURL,
                 pageCount: result.pageCount
             )
         }
@@ -135,25 +149,88 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
         }
 
         let fallbackResult = try await snapshotFallback.fetchMovies(limit: maxCatalogCount)
-        guard isSnapshotFallback(fallbackResult.source) else {
+        guard dragonIsSnapshotFallback(fallbackResult.source) else {
             return nil
         }
 
+        let loader = activeLoader()
         let refreshedAt = fallbackResult.source.cachedMetadata?.cachedAt ?? Date()
         return DragonMoviesRefreshResult(
             response: fallbackResult.value,
             refreshedAt: refreshedAt,
             source: fallbackResult.value.items.isEmpty ? .empty : .bundledSnapshot,
-            backendURL: resolvedBackendBaseURL(),
+            backendURL: loader.fallbackSourceLabel,
             pageCount: 1
         )
     }
 
-    private func refreshFromAPI(
+    private func activeLoader() -> DragonMoviesRemoteCatalogLoader {
+        notionLoader.isConfigured ? notionLoader : legacyLoader
+    }
+
+    var sourceLabel: String {
+        activeLoader().fallbackSourceLabel
+    }
+
+    private func save(
+        response: DragonMoviesResponse,
         pageLimit: Int,
         maxCatalogCount: Int,
-        backendURL: String
-    ) async throws -> DragonMoviesRefreshResult {
+        cacheIdentity: String,
+        backendURL: String,
+        pageCount: Int
+    ) async {
+        guard !response.items.isEmpty else {
+            return
+        }
+
+        let payload = DragonCachedMoviesPayload(
+            response: response,
+            backendURL: backendURL,
+            pageCount: pageCount
+        )
+
+        guard let data = try? encoder.encode(payload) else {
+            return
+        }
+
+        await responseCache.save(
+            data: data,
+            for: dragonMoviesCacheURL(
+                pageLimit: pageLimit,
+                maxCatalogCount: maxCatalogCount,
+                cacheIdentity: cacheIdentity
+            )
+        )
+    }
+}
+
+final class DragonLegacyAPIMoviesDataSource: DragonMoviesRemoteCatalogLoader {
+    private let client: DragonMoviesPagingClient
+    private let backendBaseURLProvider: () -> String
+
+    init(
+        client: DragonMoviesPagingClient = DragonAPIClient.shared,
+        backendBaseURLProvider: @escaping () -> String = currentDragonBackendBaseURL
+    ) {
+        self.client = client
+        self.backendBaseURLProvider = backendBaseURLProvider
+    }
+
+    var isConfigured: Bool {
+        true
+    }
+
+    var cacheIdentity: String {
+        "legacy-api|\(resolvedBackendBaseURL())"
+    }
+
+    var fallbackSourceLabel: String {
+        resolvedBackendBaseURL()
+    }
+
+    func refreshMovies(pageLimit: Int, maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult {
+        let backendURL = resolvedBackendBaseURL()
         var mergedMovies: [DragonMovie] = []
         var seenMovieIDs = Set<String>()
         var nextOffset = 0
@@ -180,12 +257,12 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
             }
 
             let countBeforeMerge = mergedMovies.count
-            merge(response.items, into: &mergedMovies, seenIDs: &seenMovieIDs)
+            dragonMergeMovies(response.items, into: &mergedMovies, seenIDs: &seenMovieIDs)
             if !response.items.isEmpty && mergedMovies.count == countBeforeMerge {
                 break
             }
 
-            if !shouldContinuePaging(
+            if !dragonShouldContinuePaging(
                 response: response,
                 requestLimit: pageLimit,
                 currentOffset: nextOffset,
@@ -196,7 +273,7 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
                 break
             }
 
-            guard let candidateNextOffset = resolveNextOffset(
+            guard let candidateNextOffset = dragonResolveNextOffset(
                 response: response,
                 requestLimit: pageLimit,
                 currentOffset: nextOffset
@@ -223,146 +300,118 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
             next_offset: nil
         )
 
-        let refreshedAt = Date()
         return DragonMoviesRefreshResult(
             response: response,
-            refreshedAt: refreshedAt,
+            refreshedAt: Date(),
             source: response.items.isEmpty ? .empty : .api,
             backendURL: backendURL,
             pageCount: max(pagesLoaded, 1)
         )
     }
 
-    private func save(
-        response: DragonMoviesResponse,
-        pageLimit: Int,
-        maxCatalogCount: Int,
-        backendURL: String,
-        pageCount: Int
-    ) async {
-        guard !response.items.isEmpty else {
-            return
-        }
-
-        let payload = DragonCachedMoviesPayload(
-            response: response,
-            backendURL: backendURL,
-            pageCount: pageCount
-        )
-
-        guard let data = try? encoder.encode(payload) else {
-            return
-        }
-
-        await responseCache.save(
-            data: data,
-            for: cacheURL(pageLimit: pageLimit, maxCatalogCount: maxCatalogCount, backendURL: backendURL)
-        )
-    }
-
-    private func cacheURL(pageLimit: Int, maxCatalogCount: Int, backendURL: String) -> URL {
-        var components = URLComponents()
-        components.scheme = "dragon-cache"
-        components.host = DragonResponseCacheDomain.movies.rawValue
-        components.path = "/catalog-v1"
-        components.queryItems = [
-            URLQueryItem(name: "backend", value: backendURL),
-            URLQueryItem(name: "page_limit", value: String(pageLimit)),
-            URLQueryItem(name: "max_catalog_count", value: String(maxCatalogCount))
-        ]
-
-        return components.url
-            ?? URL(string: "dragon-cache://movies/catalog-v1?page_limit=\(pageLimit)&max_catalog_count=\(maxCatalogCount)")!
-    }
-
     private func resolvedBackendBaseURL() -> String {
         normalizeDragonBackendBaseURL(backendBaseURLProvider()) ?? dragonDefaultBackendBaseURL
     }
+}
 
-    private func merge(_ incomingMovies: [DragonMovie], into mergedMovies: inout [DragonMovie], seenIDs: inout Set<String>) {
-        for movie in incomingMovies {
-            let normalizedID = stableDedupeKey(for: movie)
-            guard !normalizedID.isEmpty, !seenIDs.contains(normalizedID) else {
-                continue
-            }
+func dragonMoviesCacheURL(pageLimit: Int, maxCatalogCount: Int, cacheIdentity: String) -> URL {
+    var components = URLComponents()
+    components.scheme = "dragon-cache"
+    components.host = DragonResponseCacheDomain.movies.rawValue
+    components.path = "/catalog-v2"
+    components.queryItems = [
+        URLQueryItem(name: "source", value: cacheIdentity),
+        URLQueryItem(name: "page_limit", value: String(pageLimit)),
+        URLQueryItem(name: "max_catalog_count", value: String(maxCatalogCount))
+    ]
 
-            seenIDs.insert(normalizedID)
-            mergedMovies.append(movie)
+    return components.url
+        ?? URL(string: "dragon-cache://movies/catalog-v2?page_limit=\(pageLimit)&max_catalog_count=\(maxCatalogCount)")!
+}
+
+func dragonMergeMovies(_ incomingMovies: [DragonMovie], into mergedMovies: inout [DragonMovie], seenIDs: inout Set<String>) {
+    for movie in incomingMovies {
+        let normalizedID = dragonStableMovieDedupeKey(for: movie)
+        guard !normalizedID.isEmpty, !seenIDs.contains(normalizedID) else {
+            continue
         }
+
+        seenIDs.insert(normalizedID)
+        mergedMovies.append(movie)
+    }
+}
+
+func dragonStableMovieDedupeKey(for movie: DragonMovie) -> String {
+    let normalizedID = movie.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !normalizedID.isEmpty {
+        return normalizedID
     }
 
-    private func stableDedupeKey(for movie: DragonMovie) -> String {
-        let normalizedID = movie.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !normalizedID.isEmpty {
-            return normalizedID
-        }
+    let fallbackParts = [
+        movie.title,
+        movie.year,
+        movie.poster
+    ]
+    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    .filter { !$0.isEmpty }
 
-        let fallbackParts = [
-            movie.title,
-            movie.year,
-            movie.poster
-        ]
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        .filter { !$0.isEmpty }
+    return fallbackParts.joined(separator: "|")
+}
 
-        return fallbackParts.joined(separator: "|")
+func dragonShouldContinuePaging(
+    response: DragonMoviesResponse,
+    requestLimit: Int,
+    currentOffset: Int,
+    loadedCount: Int,
+    maxCatalogCount: Int,
+    total: Int?
+) -> Bool {
+    if loadedCount >= maxCatalogCount {
+        return false
     }
 
-    private func shouldContinuePaging(
-        response: DragonMoviesResponse,
-        requestLimit: Int,
-        currentOffset: Int,
-        loadedCount: Int,
-        maxCatalogCount: Int,
-        total: Int?
-    ) -> Bool {
-        if loadedCount >= maxCatalogCount {
-            return false
-        }
-
-        if response.items.isEmpty {
-            return false
-        }
-
-        if let total, total > 0, loadedCount >= total {
-            return false
-        }
-
-        if response.has_more {
-            return true
-        }
-
-        if let nextOffset = response.next_offset, nextOffset > currentOffset {
-            return true
-        }
-
-        return response.items.count >= requestLimit
+    if response.items.isEmpty {
+        return false
     }
 
-    private func resolveNextOffset(
-        response: DragonMoviesResponse,
-        requestLimit: Int,
-        currentOffset: Int
-    ) -> Int? {
-        if let nextOffset = response.next_offset, nextOffset > currentOffset {
-            return nextOffset
-        }
-
-        let step = max(response.items.count, response.limit ?? requestLimit, 1)
-        guard response.has_more || response.items.count >= requestLimit else {
-            return nil
-        }
-
-        return currentOffset + step
+    if let total, total > 0, loadedCount >= total {
+        return false
     }
 
-    private func isSnapshotFallback(_ source: DragonResponseSource) -> Bool {
-        switch source {
-        case .snapshot, .remoteSnapshot, .cachedSnapshot, .bundledSnapshot:
-            return true
-        case .network, .cache:
-            return false
-        }
+    if response.has_more {
+        return true
+    }
+
+    if let nextOffset = response.next_offset, nextOffset > currentOffset {
+        return true
+    }
+
+    return response.items.count >= requestLimit
+}
+
+func dragonResolveNextOffset(
+    response: DragonMoviesResponse,
+    requestLimit: Int,
+    currentOffset: Int
+) -> Int? {
+    if let nextOffset = response.next_offset, nextOffset > currentOffset {
+        return nextOffset
+    }
+
+    let step = max(response.items.count, response.limit ?? requestLimit, 1)
+    guard response.has_more || response.items.count >= requestLimit else {
+        return nil
+    }
+
+    return currentOffset + step
+}
+
+func dragonIsSnapshotFallback(_ source: DragonResponseSource) -> Bool {
+    switch source {
+    case .snapshot, .remoteSnapshot, .cachedSnapshot, .bundledSnapshot:
+        return true
+    case .network, .cache:
+        return false
     }
 }
 
