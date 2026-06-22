@@ -1,12 +1,13 @@
 import SwiftUI
 
 enum DragonAdminSection: String, CaseIterable, Identifiable {
-    case tv
+    case dragonConnection
     case movies
-    case youtube
     case articles
+    case youtube
     case books
-    case chess
+    case tv
+    case developer
 
     var id: String {
         rawValue
@@ -14,27 +15,39 @@ enum DragonAdminSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .tv:
-            return "TV"
+        case .dragonConnection:
+            return "Dragon Connection"
         case .movies:
             return "Movies"
-        case .youtube:
-            return "YouTube"
         case .articles:
             return "Articles"
+        case .youtube:
+            return "YouTube"
         case .books:
             return "Books"
-        case .chess:
-            return "Chess"
+        case .tv:
+            return "TV / IPTV"
+        case .developer:
+            return "Developer"
         }
     }
 
     var adminTitle: String {
-        "\(title) Admin"
+        switch self {
+        case .developer:
+            return "Developer Admin"
+        default:
+            return "\(title) Admin"
+        }
     }
 
     var rootStatus: String {
-        self == .tv ? "Functional" : "Placeholder"
+        switch self {
+        case .tv:
+            return "Functional"
+        case .dragonConnection, .movies, .articles, .youtube, .books, .developer:
+            return "Placeholder"
+        }
     }
 
     var rootStatusColor: Color {
@@ -43,10 +56,31 @@ enum DragonAdminSection: String, CaseIterable, Identifiable {
 
     var rootMessage: String {
         switch self {
+        case .dragonConnection:
+            return "Legacy connection diagnostics and admin hooks can live here later."
+        case .movies:
+            return "Movies admin and source diagnostics are not wired yet."
+        case .articles:
+            return "Articles source diagnostics and admin tools are not wired yet."
+        case .youtube:
+            return "YouTube diagnostics and sources are not wired yet."
+        case .books:
+            return "Books diagnostics and sources are not wired yet."
         case .tv:
             return "Diagnostics and editable TV sources."
+        case .developer:
+            return "App-level diagnostics and developer tooling can expand here later."
+        }
+    }
+
+    var openButtonTitle: String {
+        switch self {
+        case .tv:
+            return "Open TV Admin"
+        case .developer:
+            return "Open Developer Admin"
         default:
-            return "Diagnostics and sources are not wired yet."
+            return "Open \(title) Admin"
         }
     }
 }
@@ -73,7 +107,7 @@ struct DragonAdminView: View {
                                 message: section.rootMessage
                             ) {
                                 HStack {
-                                    Text(section == .tv ? "Open TV Admin" : "Open \(section.title) Admin")
+                                    Text(section.openButtonTitle)
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.white)
 
@@ -131,7 +165,7 @@ struct DragonAdminView: View {
         switch section {
         case .tv:
             DragonTVAdminView()
-        case .movies, .youtube, .articles, .books, .chess:
+        case .dragonConnection, .movies, .articles, .youtube, .books, .developer:
             DragonAdminSectionDetailView(section: section)
         }
     }
