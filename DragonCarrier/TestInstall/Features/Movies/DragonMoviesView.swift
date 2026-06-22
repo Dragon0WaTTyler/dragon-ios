@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct DragonMoviesView: View {
@@ -114,6 +115,11 @@ struct DragonMoviesView: View {
         }
         .task {
             if case .idle = viewModel.state {
+                await viewModel.loadMovies()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: dragonNotionMoviesConfigurationDidChangeNotification)) { _ in
+            Task {
                 await viewModel.loadMovies()
             }
         }

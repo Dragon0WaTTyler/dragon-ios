@@ -41,7 +41,7 @@ final class DragonNotionMoviesDataSource: DragonMoviesRemoteCatalogLoader {
     }
 
     var isConfigured: Bool {
-        (try? settingsStore.loadConfiguration().isConfigured) ?? false
+        settingsStore.isMoviesConfigured
     }
 
     var cacheIdentity: String {

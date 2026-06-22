@@ -2,6 +2,7 @@ import Foundation
 import Security
 
 let dragonNotionMoviesSourceIdentifierDefaultsKey = "dragon.movies.notion.sourceIdentifier"
+let dragonNotionMoviesConfigurationDidChangeNotification = Notification.Name("dragonNotionMoviesConfigurationDidChange")
 
 struct DragonNotionConfiguration {
     let sourceIdentifier: String
@@ -112,6 +113,10 @@ struct DragonNotionSettingsStore {
         (try? keychainStore.string(for: keychainService, account: keychainAccount))?.isEmpty == false
     }
 
+    var isMoviesConfigured: Bool {
+        !moviesSourceIdentifier.isEmpty && hasToken
+    }
+
     func loadToken() throws -> String? {
         try keychainStore.string(for: keychainService, account: keychainAccount)
     }
@@ -151,5 +156,9 @@ struct DragonNotionSettingsStore {
 
     private func sanitized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func postMoviesConfigurationDidChange() {
+        NotificationCenter.default.post(name: dragonNotionMoviesConfigurationDidChangeNotification, object: nil)
     }
 }

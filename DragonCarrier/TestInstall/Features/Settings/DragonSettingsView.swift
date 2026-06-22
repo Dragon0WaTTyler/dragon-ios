@@ -388,6 +388,7 @@ struct DragonSettingsView: View {
             }
         }
 
+        notionSettingsStore.postMoviesConfigurationDidChange()
         notionConnectionState = .notTested
         notionLastCheckedAt = nil
     }
@@ -396,6 +397,7 @@ struct DragonSettingsView: View {
         do {
             try notionSettingsStore.clearToken()
             notionTokenDraft = ""
+            notionSettingsStore.postMoviesConfigurationDidChange()
             notionConnectionState = .notTested
             notionLastCheckedAt = nil
         } catch {
