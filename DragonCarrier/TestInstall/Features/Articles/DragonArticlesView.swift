@@ -410,6 +410,8 @@ struct ArticleDetailView: View {
                 }
                 .padding(24)
                 .padding(.bottom, 90)
+                .environment(\.layoutDirection, detailDirection.layoutDirection)
+                .multilineTextAlignment(detailDirection.alignment)
             }
         }
     }
@@ -1140,20 +1142,11 @@ private enum DragonTextDirection {
     case rightToLeft
 
     static func forText(_ value: String) -> DragonTextDirection {
-        value.isLikelyRTL ? .rightToLeft : .leftToRight
+        isProbablyRTL(value) ? .rightToLeft : .leftToRight
     }
 
     static func forBodyText(_ value: String) -> DragonTextDirection {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return .leftToRight
-        }
-
-        if trimmed.containsArabicScript {
-            return .rightToLeft
-        }
-
-        return forText(trimmed)
+        isProbablyRTL(value) ? .rightToLeft : .leftToRight
     }
 
     var layoutDirection: LayoutDirection {
@@ -1193,44 +1186,6 @@ private enum DragonTextDirection {
     }
 }
 
-    private extension String {
-    var containsArabicScript: Bool {
-        unicodeScalars.contains { $0.isArabicScript }
-    }
-
-    var isLikelyRTL: Bool {
-        let scalars = unicodeScalars
-        var rtlCount = 0
-        var latinCount = 0
-        var letterCount = 0
-
-        for scalar in scalars {
-            if CharacterSet.letters.contains(scalar) {
-                letterCount += 1
-            }
-
-            if scalar.isArabicScript {
-                rtlCount += 1
-                continue
-            }
-
-            if scalar.isLatinScript {
-                latinCount += 1
-            }
-        }
-
-        guard rtlCount > 0, letterCount > 0 else {
-            return false
-        }
-
-        if latinCount == 0 {
-            return rtlCount >= max(2, letterCount / 4)
-        }
-
-        return rtlCount >= latinCount || rtlCount >= max(2, letterCount / 3)
-    }
-}
-
 private extension UnicodeScalar {
     var isArabicScript: Bool {
         switch value {
@@ -1244,19 +1199,10 @@ private extension UnicodeScalar {
             return false
         }
     }
+}
 
-    var isLatinScript: Bool {
-        switch value {
-        case 0x0041...0x005A,
-             0x0061...0x007A,
-             0x00C0...0x00D6,
-             0x00D8...0x00F6,
-             0x00F8...0x00FF:
-            return true
-        default:
-            return false
-        }
-    }
+private func isProbablyRTL(_ text: String) -> Bool {
+    text.unicodeScalars.contains { $0.isArabicScript }
 }
 
 #Preview("Articles") {
