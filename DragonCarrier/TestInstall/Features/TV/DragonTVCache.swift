@@ -6,8 +6,18 @@ struct DragonTVCachedChannelsResult: Sendable {
     let cachedAt: Date
 }
 
+struct DragonTVCachedHealthSnapshotResult: Sendable {
+    let snapshot: IPTVHealthSnapshot
+    let cachedAt: Date
+}
+
 struct DragonTVRefreshResult: Sendable {
     let report: IPTVLoadReport
+    let refreshedAt: Date
+}
+
+struct DragonTVHealthRefreshResult: Sendable {
+    let snapshot: IPTVHealthSnapshot
     let refreshedAt: Date
 }
 
@@ -34,7 +44,7 @@ actor DragonTVCacheStore {
     }
 
     func loadCachedReport() async throws -> DragonTVCachedChannelsResult? {
-        let recordURL = try cacheRecordURL()
+        let recordURL = try cacheRecordURL(for: catalogCacheURL)
         guard fileManager.fileExists(atPath: recordURL.path) else {
             return nil
         }
@@ -49,14 +59,38 @@ actor DragonTVCacheStore {
         return DragonTVCachedChannelsResult(report: report, cachedAt: record.metadata.cachedAt)
     }
 
+    func loadCachedHealthSnapshot() async throws -> DragonTVCachedHealthSnapshotResult? {
+        let recordURL = try cacheRecordURL(for: healthSnapshotCacheURL)
+        guard fileManager.fileExists(atPath: recordURL.path) else {
+            return nil
+        }
+
+        let recordData = try Data(contentsOf: recordURL)
+        let record = try decoder.decode(DragonCachedResponseRecord.self, from: recordData)
+        guard let payloadData = Data(base64Encoded: record.payloadBase64) else {
+            throw CocoaError(.coderReadCorrupt)
+        }
+
+        let snapshot = try decoder.decode(IPTVHealthSnapshot.self, from: payloadData)
+        return DragonTVCachedHealthSnapshotResult(snapshot: snapshot, cachedAt: record.metadata.cachedAt)
+    }
+
     func save(_ report: IPTVLoadReport) async -> DragonTVRefreshResult {
         let refreshedAt = Date()
 
         if let data = try? encoder.encode(report) {
-            await responseCache.save(data: data, for: cacheURL)
+            await responseCache.save(data: data, for: catalogCacheURL)
         }
 
         return DragonTVRefreshResult(report: report, refreshedAt: refreshedAt)
+    }
+
+    func saveHealthSnapshot(_ snapshot: IPTVHealthSnapshot) async -> DragonTVHealthRefreshResult {
+        if let data = try? encoder.encode(snapshot) {
+            await responseCache.save(data: data, for: healthSnapshotCacheURL)
+        }
+
+        return DragonTVHealthRefreshResult(snapshot: snapshot, refreshedAt: snapshot.lastCheckedAt)
     }
 
     func cachedChannelCount() async throws -> Int {
@@ -68,7 +102,12 @@ actor DragonTVCacheStore {
     }
 
     func clear() async throws {
-        let recordURL = try cacheRecordURL()
+        try clearCatalog()
+        try clearHealthSnapshot()
+    }
+
+    func clearCatalog() throws {
+        let recordURL = try cacheRecordURL(for: catalogCacheURL)
         guard fileManager.fileExists(atPath: recordURL.path) else {
             return
         }
@@ -76,15 +115,32 @@ actor DragonTVCacheStore {
         try fileManager.removeItem(at: recordURL)
     }
 
-    private var cacheURL: URL {
+    func clearHealthSnapshot() throws {
+        let recordURL = try cacheRecordURL(for: healthSnapshotCacheURL)
+        guard fileManager.fileExists(atPath: recordURL.path) else {
+            return
+        }
+
+        try fileManager.removeItem(at: recordURL)
+    }
+
+    private var catalogCacheURL: URL {
         var components = URLComponents()
         components.scheme = "dragon-cache"
         components.host = "tv"
-        components.path = "/working-channels-v3"
-        return components.url ?? URL(string: "dragon-cache://tv/working-channels-v3")!
+        components.path = "/catalog-v1"
+        return components.url ?? URL(string: "dragon-cache://tv/catalog-v1")!
     }
 
-    private func cacheRecordURL() throws -> URL {
+    private var healthSnapshotCacheURL: URL {
+        var components = URLComponents()
+        components.scheme = "dragon-cache"
+        components.host = "tv"
+        components.path = "/health-v1"
+        return components.url ?? URL(string: "dragon-cache://tv/health-v1")!
+    }
+
+    private func cacheRecordURL(for cacheURL: URL) throws -> URL {
         let baseDirectory = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,

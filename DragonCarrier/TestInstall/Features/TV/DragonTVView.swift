@@ -1,9 +1,16 @@
 import AVKit
 import SwiftUI
 
+private enum DragonTVPrimarySection: Equatable {
+    case live
+    case channels
+}
+
 struct DragonTVView: View {
     @StateObject private var viewModel: DragonTVViewModel
     @State private var selectedChannel: IPTVChannel?
+    @State private var currentChannel: IPTVChannel?
+    @State private var selectedSection: DragonTVPrimarySection = .channels
 
     @MainActor
     init() {
@@ -24,16 +31,13 @@ struct DragonTVView: View {
                         DragonTVHeader(
                             countLabel: viewModel.channelCountLabel,
                             isRefreshing: viewModel.isLoading,
+                            selectedSection: selectedSection,
+                            currentChannelName: currentChannel?.name,
+                            onSelectSection: { selectedSection = $0 },
                             onRefresh: refreshChannels
                         )
                         .padding(.horizontal, 20)
                         .padding(.top, 10)
-
-                        DragonTVStatusCard(viewModel: viewModel)
-                            .padding(.horizontal, 20)
-
-                        DragonTVStatsGrid(viewModel: viewModel)
-                            .padding(.horizontal, 20)
 
                         DragonTVSearchField(searchText: $viewModel.searchText)
                             .padding(.horizontal, 20)
@@ -67,10 +71,24 @@ struct DragonTVView: View {
         let hasVisibleContent = !visibleChannels.isEmpty || !supplementalChannels.isEmpty
         let hasAnyContent = !viewModel.channels.isEmpty || !supplementalChannels.isEmpty
 
-        if viewModel.isLoading && !hasAnyContent {
+        if selectedSection == .live {
+            DragonTVLiveCard(
+                currentChannel: currentChannel,
+                onResume: {
+                    guard let currentChannel else {
+                        return
+                    }
+
+                    selectedChannel = currentChannel
+                },
+                onShowChannels: {
+                    selectedSection = .channels
+                }
+            )
+        } else if viewModel.isLoading && !hasAnyContent {
             DragonTVStateCard(
                 title: "Loading TV",
-                message: "Fetching playlists, removing duplicates, and testing reachable streams."
+                message: "Fetching playlists and rebuilding the cached channel catalog."
             ) {
                 ProgressView()
                     .tint(.white)
@@ -78,7 +96,7 @@ struct DragonTVView: View {
         } else if !hasAnyContent {
             DragonTVStateCard(
                 title: "No Channels Yet",
-                message: "No reachable channels are cached right now. Refresh to run a new scan."
+                message: "No cached channel catalog is available right now. Refresh to rebuild it."
             ) {
                 Button("Refresh") {
                     refreshChannels()
@@ -114,7 +132,9 @@ struct DragonTVView: View {
                     DragonTVChannelRow(
                         channel: channel,
                         onSelect: {
+                            currentChannel = channel
                             selectedChannel = channel
+                            selectedSection = .live
                         },
                         onToggleFavorite: {
                             viewModel.toggleFavorite(channel)
@@ -156,6 +176,9 @@ struct DragonTVView: View {
 private struct DragonTVHeader: View {
     let countLabel: String
     let isRefreshing: Bool
+    let selectedSection: DragonTVPrimarySection
+    let currentChannelName: String?
+    let onSelectSection: (DragonTVPrimarySection) -> Void
     let onRefresh: () -> Void
 
     var body: some View {
@@ -208,9 +231,27 @@ private struct DragonTVHeader: View {
             }
 
             HStack(spacing: 18) {
-                DragonTVHeaderNavLabel(title: "Live", isSelected: true)
-                DragonTVHeaderNavLabel(title: "Channels", isSelected: true)
-                DragonTVHeaderNavLabel(title: "Favorites", isSelected: false)
+                Button {
+                    onSelectSection(.live)
+                } label: {
+                    DragonTVHeaderNavLabel(
+                        title: "Live",
+                        subtitle: currentChannelName,
+                        isSelected: selectedSection == .live
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    onSelectSection(.channels)
+                } label: {
+                    DragonTVHeaderNavLabel(
+                        title: "Channels",
+                        subtitle: nil,
+                        isSelected: selectedSection == .channels
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -218,6 +259,7 @@ private struct DragonTVHeader: View {
 
 private struct DragonTVHeaderNavLabel: View {
     let title: String
+    let subtitle: String?
     let isSelected: Bool
 
     var body: some View {
@@ -226,52 +268,16 @@ private struct DragonTVHeaderNavLabel: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(isSelected ? .white : .white.opacity(0.52))
 
+            if let subtitle, !subtitle.isEmpty, isSelected {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+                    .lineLimit(1)
+            }
+
             Capsule()
                 .fill(isSelected ? Color.white : Color.clear)
                 .frame(width: isSelected ? 28 : 0, height: 2)
-        }
-    }
-}
-
-private struct DragonTVStatusCard: View {
-    @ObservedObject var viewModel: DragonTVViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            DragonRefreshStatusView(
-                lastUpdatedAt: viewModel.lastUpdatedAt,
-                isRefreshing: viewModel.isLoading,
-                errorText: viewModel.errorMessage,
-                statusText: viewModel.statusText
-            )
-
-            if !viewModel.sourceFailures.isEmpty {
-                Text(viewModel.sourceFailures.prefix(3).map(\.label).joined(separator: " • "))
-                    .font(.caption)
-                    .foregroundStyle(.gray)
-                    .lineLimit(2)
-            }
-        }
-        .padding(14)
-        .background(DragonTheme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-}
-
-private struct DragonTVStatsGrid: View {
-    @ObservedObject var viewModel: DragonTVViewModel
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-
-    var body: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
-            DragonTVStatCard(title: "Raw", value: "\(viewModel.rawChannelCount)")
-            DragonTVStatCard(title: "Deduped", value: "\(viewModel.dedupedChannelCount)")
-            DragonTVStatCard(title: "Working", value: "\(viewModel.validChannelCount)")
-            DragonTVStatCard(title: "Failed Sources", value: "\(viewModel.failedSourceCount)")
         }
     }
 }
@@ -299,6 +305,81 @@ private struct DragonTVStatCard: View {
                 .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+private struct DragonTVLiveCard: View {
+    let currentChannel: IPTVChannel?
+    let onResume: () -> Void
+    let onShowChannels: () -> Void
+
+    var body: some View {
+        DragonTVStateCard(
+            title: currentChannel == nil ? "Live" : "Now Playing",
+            message: currentChannelMessage
+        ) {
+            if let currentChannel {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        DragonTVChannelLogo(logoURL: currentChannel.logo)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(currentChannel.name)
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+
+                            if let group = currentChannel.displayGroupLabel, !group.isEmpty {
+                                Text(group)
+                                    .font(.caption)
+                                    .foregroundStyle(.gray)
+                            }
+
+                            Text(currentChannel.sourceSummary)
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                                .lineLimit(2)
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Play Current Stream", action: onResume)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(DragonTheme.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                        Button("Browse Channels", action: onShowChannels)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(DragonTheme.red.opacity(0.45), lineWidth: 1)
+                            )
+                    }
+                }
+            } else {
+                Button("Open Channel List", action: onShowChannels)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(DragonTheme.red)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    private var currentChannelMessage: String {
+        if currentChannel != nil {
+            return "Resume the latest stream you opened, or jump back to the channel list."
+        }
+
+        return "Choose a channel first, then Live will keep the current stream area handy."
     }
 }
 
@@ -377,7 +458,7 @@ private struct DragonTVChannelRow: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
 
-                if let group = channel.group, !group.isEmpty {
+                if let group = channel.displayGroupLabel, !group.isEmpty {
                     Text(group)
                         .font(.subheadline)
                         .foregroundStyle(.gray)

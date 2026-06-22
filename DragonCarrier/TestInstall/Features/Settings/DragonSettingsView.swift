@@ -23,6 +23,7 @@ struct DragonSettingsView: View {
     @State private var isRefreshingCacheInfo = false
     @State private var cacheStatusText: String?
     @State private var showClearCacheConfirmation = false
+
     private let settingsStore = DragonBackendSettingsStore()
     private let notionSettingsStore = DragonNotionSettingsStore()
     private let notionMoviesDataSource = DragonNotionMoviesDataSource()
@@ -34,47 +35,107 @@ struct DragonSettingsView: View {
                 DragonTheme.background.ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        Text("Settings")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(.white)
+                    VStack(alignment: .leading, spacing: 18) {
+                        homeHeader
 
-                        sectionCard(
-                            title: "Developer / Legacy Backend",
-                            subtitle: "Developer-only backend endpoint. Native Movies no longer uses this automatically."
-                        ) {
-                            connectionCardContent
+                        NavigationLink {
+                            dragonConnectionPage
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "Dragon Connection",
+                                message: "Legacy backend connection for developer testing only.",
+                                badgeText: backendCardBadgeText,
+                                badgeColor: backendCardBadgeColor
+                            )
                         }
+                        .buttonStyle(.plain)
 
-                        sectionCard(
-                            title: "Movies in Notion",
-                            subtitle: "Movies loads natively from Notion with local cache fallback."
-                        ) {
-                            notionCardContent
+                        NavigationLink {
+                            moviesPage
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "Movies",
+                                message: "Configure native Notion loading, secure token storage, and connection checks.",
+                                badgeText: notionConfigurationLabel,
+                                badgeColor: notionConfigurationColor
+                            )
                         }
+                        .buttonStyle(.plain)
 
-                        sectionCard(
-                            title: "Articles / Cache",
-                            subtitle: "Inspect and clear stored responses used by the app."
-                        ) {
-                            cacheCardContent
+                        NavigationLink {
+                            articlesPage
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "Articles",
+                                message: "Review RSS source coverage, article cache state, and refresh controls.",
+                                badgeText: articlesCardBadgeText,
+                                badgeColor: articlesCardBadgeColor
+                            )
                         }
+                        .buttonStyle(.plain)
 
-                        sectionCard(
-                            title: "Developer Debug",
-                            subtitle: "Local section controls, diagnostics, and admin tools."
-                        ) {
-                            developerDebugCardContent
+                        NavigationLink {
+                            placeholderPage(
+                                title: "YouTube",
+                                subtitle: "Video settings are not configured here yet.",
+                                message: "YouTube settings and source management are coming later. No existing YouTube behavior was changed in this refactor."
+                            )
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "YouTube",
+                                message: "Section shell ready for future source and sync settings.",
+                                badgeText: "Coming later",
+                                badgeColor: .gray
+                            )
                         }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            placeholderPage(
+                                title: "Books",
+                                subtitle: "Books settings are not configured here yet.",
+                                message: "Books-specific controls can be organized here later. This task does not add or change Books data behavior."
+                            )
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "Books",
+                                message: "Placeholder page for future reading source and sync controls.",
+                                badgeText: "Coming later",
+                                badgeColor: .gray
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            tvPage
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "TV / IPTV",
+                                message: "TV diagnostics and editable IPTV source tools now live inside this section.",
+                                badgeText: "Admin ready",
+                                badgeColor: DragonTheme.red
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            developerPage
+                        } label: {
+                            DragonSettingsNavigationCard(
+                                title: "Developer",
+                                message: "Diagnostics, admin tools, and remaining cache actions for troubleshooting.",
+                                badgeText: developerCardBadgeText,
+                                badgeColor: developerCardBadgeColor
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(24)
                     .padding(.bottom, 24)
                 }
             }
             .task {
-                backendURLDraft = settingsStore.backendURL
-                notionSourceIDDraft = notionSettingsStore.moviesSourceIdentifier
-                await refreshCacheInfo()
+                await loadInitialState()
             }
             .alert("Clear all cache?", isPresented: $showClearCacheConfirmation) {
                 Button("Clear", role: .destructive) {
@@ -90,21 +151,220 @@ struct DragonSettingsView: View {
         }
     }
 
-    private var connectionCardContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("http://127.0.0.1:5000", text: $backendURLDraft)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                .keyboardType(.URL)
-                .font(.footnote.monospaced())
+    private var homeHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Settings")
+                .font(.system(size: 34, weight: .bold))
                 .foregroundStyle(.white)
-                .padding(12)
-                .background(Color.black.opacity(0.35))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            Text("Choose a section to configure Dragon without changing how the existing data sources work.")
+                .font(.footnote)
+                .foregroundStyle(.gray)
+        }
+    }
+
+    private var dragonConnectionPage: some View {
+        DragonSettingsPageScaffold(
+            title: "Dragon Connection",
+            subtitle: "Legacy backend controls live here for developer testing. Dragon iOS stays independent by default."
+        ) {
+            DragonSettingsSectionCard(
+                title: "Developer / Legacy Backend",
+                subtitle: "Native Movies no longer depends on this automatically."
+            ) {
+                connectionSettingsContent
+            }
+        }
+    }
+
+    private var moviesPage: some View {
+        DragonSettingsPageScaffold(
+            title: "Movies",
+            subtitle: "Native Movies uses Notion plus local cache fallback."
+        ) {
+            DragonSettingsSectionCard(
+                title: "Movies Status",
+                subtitle: "Configuration stays in the current defaults key and secure token storage."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    DragonSettingsKeyValueRow(label: "Notion configuration", value: notionConfigurationLabel)
+                    DragonSettingsKeyValueRow(label: "Connection test", value: notionConnectionLabel)
+                    DragonSettingsKeyValueRow(
+                        label: "Movies cache",
+                        value: "\(movieCacheCount) cached response\(movieCacheCount == 1 ? "" : "s")"
+                    )
+                }
+            }
+
+            DragonSettingsSectionCard(
+                title: "Movies in Notion",
+                subtitle: "Configure a Notion token and source ID to enable native Movies loading."
+            ) {
+                notionSettingsContent
+            }
+        }
+    }
+
+    private var articlesPage: some View {
+        DragonSettingsPageScaffold(
+            title: "Articles",
+            subtitle: "RSS source organization, cache state, and refresh controls for native Articles."
+        ) {
+            DragonSettingsSectionCard(
+                title: "RSS Source URL",
+                subtitle: "This area is prepared for manual RSS source entry when that workflow is implemented."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    DragonSettingsDisabledField(placeholder: "Source URL entry coming later")
+
+                    Text("Articles currently reads from the built-in RSS registry, so no editable RSS URL setting exists yet.")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                }
+            }
+
+            DragonSettingsSectionCard(
+                title: "Source List",
+                subtitle: "Current native RSS registry used by Articles."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(DragonArticlesFeedRegistry.v1Feeds) { source in
+                        DragonSettingsSourceRow(source: source)
+                    }
+                }
+            }
+
+            DragonSettingsSectionCard(
+                title: "Articles Cache",
+                subtitle: "Inspect article-specific cache state and local refresh tools."
+            ) {
+                articlesSettingsContent
+            }
+        }
+    }
+
+    private var developerPage: some View {
+        DragonSettingsPageScaffold(
+            title: "Developer",
+            subtitle: "App-wide cache tools and legacy developer controls."
+        ) {
+            DragonSettingsSectionCard(
+                title: "Developer Structure",
+                subtitle: "Section-specific tools now live inside their matching Settings pages."
+            ) {
+                developerStructureContent
+            }
+
+            DragonSettingsSectionCard(
+                title: "Cache Overview",
+                subtitle: "Global cache tools for development and troubleshooting."
+            ) {
+                developerCacheContent
+            }
+        }
+    }
+
+    private var tvPage: some View {
+        DragonSettingsPageScaffold(
+            title: "TV / IPTV",
+            subtitle: "TV diagnostics, source tools, and future user-facing settings live together here."
+        ) {
+            DragonSettingsSectionCard(
+                title: "IPTV Status",
+                subtitle: "Catalog totals, last saved health snapshot, and manual health actions."
+            ) {
+                DragonTVSettingsStatusPanel()
+            }
+
+            DragonSettingsSectionCard(
+                title: "Source Tools",
+                subtitle: "Editable playlist sources, cache tools, and favorites actions."
+            ) {
+                NavigationLink {
+                    DragonTVAdminView()
+                } label: {
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Open TV / IPTV Source Tools")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+
+                            Text("Manage playlist sources and advanced diagnostics from the same TV / IPTV settings section.")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.28))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            DragonSettingsSectionCard(
+                title: "User Settings",
+                subtitle: "Reserved for future TV / IPTV user-facing configuration."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    DragonSettingsStatusBadge(text: "Coming later", color: .gray)
+
+                    Text("When TV / IPTV settings expand, they will live here in the same section as the current diagnostics and source tools.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+
+                    Text("User-facing TV / IPTV settings can grow here without putting the status board back on the main browsing screen.")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                }
+            }
+        }
+    }
+
+    private func placeholderPage(title: String, subtitle: String, message: String) -> some View {
+        DragonSettingsPageScaffold(title: title, subtitle: subtitle) {
+            DragonSettingsSectionCard(
+                title: "Not Configured Yet",
+                subtitle: "This section is intentionally a placeholder for future work."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    DragonSettingsStatusBadge(text: "Coming later", color: .gray)
+
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+
+                    Text("No data source or storage behavior was added or modified for this section.")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                }
+            }
+        }
+    }
+
+    private var connectionSettingsContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Use this only for legacy or developer flows. Dragon iOS native sections should continue working without a PythonAnywhere dependency.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            DragonSettingsEditableField(
+                placeholder: "http://127.0.0.1:5000",
+                text: $backendURLDraft
+            )
+            .keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
 
             Text(statusLabel)
                 .font(.footnote.weight(.semibold))
@@ -154,80 +414,9 @@ struct DragonSettingsView: View {
         }
     }
 
-    private var cacheCardContent: some View {
+    private var notionSettingsContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(totalCacheCount) total cached response\(totalCacheCount == 1 ? "" : "s")")
-                        .font(.footnote)
-                        .foregroundStyle(.gray)
-                }
-
-                Spacer()
-
-                Text(formattedCacheSize)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-
-            Text("Articles cache: \(articleCacheCount) • Movies cache: \(movieCacheCount)")
-                .font(.caption)
-                .foregroundStyle(.gray)
-
-            if let cacheStatusText, !cacheStatusText.isEmpty {
-                Text(cacheStatusText)
-                    .font(.caption)
-                    .foregroundStyle(.gray)
-            }
-
-            HStack(spacing: 12) {
-                Button("Clear Articles Cache") {
-                    Task {
-                        await clearCache(for: .articles)
-                    }
-                }
-                .buttonStyle(DragonOutlineButtonStyle())
-
-                Button("Clear Movies Cache") {
-                    Task {
-                        await clearCache(for: .movies)
-                    }
-                }
-                .buttonStyle(DragonOutlineButtonStyle())
-            }
-
-            HStack(spacing: 12) {
-                Button {
-                    Task {
-                        await refreshCacheInfo()
-                    }
-                } label: {
-                    HStack {
-                        if isRefreshingCacheInfo {
-                            ProgressView()
-                                .tint(.white)
-                        }
-
-                        Text(isRefreshingCacheInfo ? "Refreshing..." : "Refresh cache info")
-                    }
-                }
-                .buttonStyle(DragonFilledButtonStyle())
-                .disabled(isRefreshingCacheInfo)
-
-                Button {
-                    showClearCacheConfirmation = true
-                } label: {
-                    Text("Clear All Cache")
-                }
-                .buttonStyle(DragonFilledButtonStyle())
-                .disabled(isRefreshingCacheInfo)
-            }
-        }
-    }
-
-    private var notionCardContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Configure a Notion token and source ID to enable native Movies loading. Without this, Movies uses cached data only and shows a configuration prompt.")
+            Text("Without this, Movies uses cached data only and shows a configuration prompt.")
                 .font(.caption)
                 .foregroundStyle(.gray)
 
@@ -235,18 +424,12 @@ struct DragonSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.gray)
 
-            TextField("Database or data source ID", text: $notionSourceIDDraft)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                .font(.footnote.monospaced())
-                .foregroundStyle(.white)
-                .padding(12)
-                .background(Color.black.opacity(0.35))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            DragonSettingsEditableField(
+                placeholder: "Database or data source ID",
+                text: $notionSourceIDDraft
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
 
             Text("Notion token")
                 .font(.caption)
@@ -315,67 +498,150 @@ struct DragonSettingsView: View {
         }
     }
 
-    private var developerDebugCardContent: some View {
+    private var articlesSettingsContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NavigationLink {
-                DragonAdminView()
-            } label: {
-                HStack(spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Manage Dragon")
-                            .font(.headline)
-                            .foregroundStyle(.white)
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(articleCacheCount) cached article response\(articleCacheCount == 1 ? "" : "s")")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white)
 
-                        Text("Local section controls, TV cache actions, and diagnostics.")
-                            .font(.caption)
-                            .foregroundStyle(.gray)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.72))
+                    Text("\(activeArticleFeedCount) active RSS source\(activeArticleFeedCount == 1 ? "" : "s")")
+                        .font(.footnote)
+                        .foregroundStyle(.gray)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DragonTheme.card)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
-                )
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(formattedCacheSize)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text("shared cache size")
+                        .font(.caption2)
+                        .foregroundStyle(.gray)
+                }
             }
-            .buttonStyle(.plain)
-        }
-    }
 
-    private func sectionCard<Content: View>(
-        title: String,
-        subtitle: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
+            Text("Articles cache participates in the shared app response cache. Refreshing info does not trigger a new RSS sync.")
+                .font(.caption)
+                .foregroundStyle(.gray)
 
-                Text(subtitle)
+            if let cacheStatusText, !cacheStatusText.isEmpty {
+                Text(cacheStatusText)
                     .font(.caption)
                     .foregroundStyle(.gray)
             }
 
-            content()
+            HStack(spacing: 12) {
+                Button("Clear Articles Cache") {
+                    Task {
+                        await clearCache(for: .articles)
+                    }
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+
+                Button {
+                    Task {
+                        await refreshCacheInfo()
+                    }
+                } label: {
+                    HStack {
+                        if isRefreshingCacheInfo {
+                            ProgressView()
+                                .tint(.white)
+                        }
+
+                        Text(isRefreshingCacheInfo ? "Refreshing..." : "Refresh cache info")
+                    }
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+                .disabled(isRefreshingCacheInfo)
+            }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DragonTheme.card)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var developerStructureContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Dragon no longer keeps a separate admin category tree here.")
+                .font(.subheadline)
+                .foregroundStyle(.white)
+
+            Text("Use each Settings section directly. Example: TV / IPTV diagnostics and source editing now open from Settings > TV / IPTV.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            Text("Developer keeps only app-wide tools that do not belong to one content section.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+        }
+    }
+
+    private var developerCacheContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(totalCacheCount) total cached response\(totalCacheCount == 1 ? "" : "s")")
+                        .font(.footnote)
+                        .foregroundStyle(.gray)
+
+                    Text("Articles cache: \(articleCacheCount) • Movies cache: \(movieCacheCount)")
+                        .font(.caption)
+                        .foregroundStyle(.gray)
+                }
+
+                Spacer()
+
+                Text(formattedCacheSize)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+
+            if let cacheStatusText, !cacheStatusText.isEmpty {
+                Text(cacheStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            HStack(spacing: 12) {
+                Button("Clear Movies Cache") {
+                    Task {
+                        await clearCache(for: .movies)
+                    }
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+
+                Button {
+                    Task {
+                        await refreshCacheInfo()
+                    }
+                } label: {
+                    HStack {
+                        if isRefreshingCacheInfo {
+                            ProgressView()
+                                .tint(.white)
+                        }
+
+                        Text(isRefreshingCacheInfo ? "Refreshing..." : "Refresh cache info")
+                    }
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+                .disabled(isRefreshingCacheInfo)
+            }
+
+            Button("Clear All Cache") {
+                showClearCacheConfirmation = true
+            }
+            .buttonStyle(DragonFilledButtonStyle())
+            .disabled(isRefreshingCacheInfo)
+        }
+    }
+
+    private func loadInitialState() async {
+        backendURLDraft = settingsStore.backendURL
+        notionSourceIDDraft = notionSettingsStore.moviesSourceIdentifier
+        await refreshCacheInfo()
     }
 
     private func saveBackendURL() {
@@ -486,6 +752,58 @@ struct DragonSettingsView: View {
             cacheStatusText = "Could not clear local cache."
             isRefreshingCacheInfo = false
         }
+    }
+
+    private var backendCardBadgeText: String {
+        switch connectionState {
+        case .connected:
+            return "Connected"
+        case .failed:
+            return "Check failed"
+        case .invalidURL:
+            return "Invalid URL"
+        case .notTested:
+            return "Legacy"
+        }
+    }
+
+    private var backendCardBadgeColor: Color {
+        switch connectionState {
+        case .connected:
+            return .green
+        case .failed, .invalidURL:
+            return DragonTheme.red
+        case .notTested:
+            return .gray
+        }
+    }
+
+    private var articlesCardBadgeText: String {
+        if activeArticleFeedCount > 0 {
+            return "\(activeArticleFeedCount) sources"
+        }
+
+        return "No sources"
+    }
+
+    private var articlesCardBadgeColor: Color {
+        activeArticleFeedCount > 0 ? .green : DragonTheme.red
+    }
+
+    private var developerCardBadgeText: String {
+        if totalCacheCount > 0 {
+            return "\(totalCacheCount) cached"
+        }
+
+        return "Diagnostics"
+    }
+
+    private var developerCardBadgeColor: Color {
+        totalCacheCount > 0 ? DragonTheme.red : .gray
+    }
+
+    private var activeArticleFeedCount: Int {
+        DragonArticlesFeedRegistry.v1Feeds.filter(\.active).count
     }
 
     private var statusLabel: String {
@@ -681,6 +999,268 @@ struct DragonSettingsView: View {
         formatter.isAdaptive = true
         return formatter
     }()
+}
+
+private struct DragonSettingsPageScaffold<Content: View>: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let subtitle: String
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack {
+            DragonTheme.background.ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    content
+                }
+                .padding(24)
+                .padding(.bottom, 24)
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(DragonTheme.card)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.gray)
+            }
+
+            Spacer()
+        }
+    }
+}
+
+private struct DragonSettingsNavigationCard: View {
+    let title: String
+    let message: String
+    let badgeText: String?
+    let badgeColor: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+
+                    if let badgeText, !badgeText.isEmpty {
+                        DragonSettingsStatusBadge(text: badgeText, color: badgeColor)
+                    }
+                }
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .padding(.top, 4)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+private struct DragonSettingsSectionCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+private struct DragonSettingsStatusBadge: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.22))
+            .overlay(
+                Capsule()
+                    .stroke(color.opacity(0.5), lineWidth: 1)
+            )
+            .clipShape(Capsule())
+    }
+}
+
+private struct DragonSettingsEditableField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .font(.footnote.monospaced())
+            .foregroundStyle(.white)
+            .padding(12)
+            .background(Color.black.opacity(0.35))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct DragonSettingsDisabledField: View {
+    let placeholder: String
+
+    var body: some View {
+        TextField(placeholder, text: .constant(""))
+            .disabled(true)
+            .font(.footnote.monospaced())
+            .foregroundStyle(.gray)
+            .padding(12)
+            .background(Color.black.opacity(0.2))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(DragonTheme.red.opacity(0.2), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct DragonSettingsKeyValueRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            Spacer()
+
+            Text(value)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private struct DragonSettingsSourceRow: View {
+    let source: DragonRSSSourceDescriptor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(source.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                DragonSettingsStatusBadge(
+                    text: source.active ? "Active" : "Inactive",
+                    color: source.active ? .green : .gray
+                )
+            }
+
+            Text(source.feedURL)
+                .font(.caption.monospaced())
+                .foregroundStyle(.gray)
+                .textSelection(.enabled)
+
+            HStack(spacing: 10) {
+                if let language = source.language, !language.isEmpty {
+                    Text(language.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.gray)
+                }
+
+                if let category = source.category, !category.isEmpty {
+                    Text(category.capitalized)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.gray)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.black.opacity(0.28))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
 }
 
 private struct DragonFilledButtonStyle: ButtonStyle {

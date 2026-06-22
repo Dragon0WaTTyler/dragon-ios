@@ -90,36 +90,48 @@ struct DragonTVAdminView: View {
         ) {
             LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 10) {
                 DragonAdminMetricView(
-                    label: "Cached channels",
+                    label: "Catalog channels",
                     value: viewModel.metricValue(viewModel.cachedChannelCount)
                 )
                 DragonAdminMetricView(
                     label: "Working channels",
-                    value: viewModel.metricValue(viewModel.workingChannelCount)
+                    value: viewModel.metricValue(viewModel.workingChannelCount, fallback: "Not checked yet")
                 )
                 DragonAdminMetricView(
-                    label: "Sources",
-                    value: "\(viewModel.sourceCount)"
+                    label: "Checked channels",
+                    value: viewModel.metricValue(viewModel.checkedChannelCount, fallback: "Not checked yet")
+                )
+                DragonAdminMetricView(
+                    label: "Raw",
+                    value: viewModel.metricValue(viewModel.rawChannelCount)
+                )
+                DragonAdminMetricView(
+                    label: "Deduped",
+                    value: viewModel.metricValue(viewModel.dedupedChannelCount)
                 )
                 DragonAdminMetricView(
                     label: "Failed sources",
-                    value: viewModel.metricValue(viewModel.failedSourceCount)
+                    value: "\(viewModel.catalogFailedSourceCount)"
                 )
                 DragonAdminMetricView(
-                    label: "Diagnostics",
-                    value: viewModel.metricValue(viewModel.diagnosticsCount)
-                )
-                DragonAdminMetricView(
-                    label: "Sports/beIN",
-                    value: viewModel.metricValue(viewModel.interestingDiscoveryCount)
+                    label: "Failed checks",
+                    value: viewModel.metricValue(viewModel.failedHealthChannelCount, fallback: "Not checked yet")
                 )
                 DragonAdminMetricView(
                     label: "Favorites",
                     value: "\(viewModel.favoriteCount)"
                 )
                 DragonAdminMetricView(
+                    label: "Sources",
+                    value: "\(viewModel.sourceCount)"
+                )
+                DragonAdminMetricView(
                     label: "Enabled sources",
                     value: "\(viewModel.enabledSourceCount)"
+                )
+                DragonAdminMetricView(
+                    label: "Diagnostics",
+                    value: viewModel.metricValue(viewModel.diagnosticsCount)
                 )
             }
 
@@ -136,7 +148,7 @@ struct DragonTVAdminView: View {
             HStack(spacing: 12) {
                 Button {
                     Task {
-                        await viewModel.refresh()
+                        await viewModel.refreshCatalog()
                     }
                 } label: {
                     HStack {
@@ -145,7 +157,7 @@ struct DragonTVAdminView: View {
                                 .tint(.white)
                         }
 
-                        Text(viewModel.status == .loading ? "Refreshing..." : "Refresh TV Channels")
+                        Text(viewModel.status == .loading ? "Refreshing..." : "Refresh Catalog")
                     }
                 }
                 .buttonStyle(DragonAdminFilledButtonStyle())
@@ -153,14 +165,24 @@ struct DragonTVAdminView: View {
 
                 Button {
                     Task {
-                        await viewModel.clearCache()
+                        await viewModel.runHealthCheck()
                     }
                 } label: {
-                    Text("Clear TV Cache")
+                    Text("Run Health Check")
                 }
                 .buttonStyle(DragonAdminOutlineButtonStyle())
                 .disabled(viewModel.status == .loading)
             }
+
+            Button {
+                Task {
+                    await viewModel.clearCache()
+                }
+            } label: {
+                Text("Clear TV Cache")
+            }
+            .buttonStyle(DragonAdminOutlineButtonStyle())
+            .disabled(viewModel.status == .loading)
 
             if viewModel.favoriteCount > 0 {
                 Button {
@@ -173,7 +195,7 @@ struct DragonTVAdminView: View {
             }
 
             if viewModel.sourceDiagnostics.isEmpty {
-                Text("Diagnostics unavailable until a cached or refreshed TV report exists.")
+                Text("Diagnostics appear after a catalog refresh or a manual health check.")
                     .font(.caption)
                     .foregroundStyle(.gray)
                     .padding(12)
@@ -184,7 +206,7 @@ struct DragonTVAdminView: View {
                 NavigationLink {
                     DragonTVAdminDiagnosticsView(
                         diagnostics: viewModel.sourceDiagnostics,
-                        lastUpdatedAt: viewModel.lastUpdatedAt
+                        lastUpdatedAt: viewModel.lastHealthCheckedAt ?? viewModel.lastCatalogUpdatedAt
                     )
                 } label: {
                     HStack {
@@ -204,6 +226,111 @@ struct DragonTVAdminView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    private var metricColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 10),
+            GridItem(.flexible(), spacing: 10)
+        ]
+    }
+}
+
+struct DragonTVSettingsStatusPanel: View {
+    @StateObject private var viewModel = DragonTVAdminViewModel()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 10) {
+                DragonAdminMetricView(
+                    label: "Total channels",
+                    value: viewModel.metricValue(viewModel.cachedChannelCount)
+                )
+                DragonAdminMetricView(
+                    label: "Working",
+                    value: viewModel.metricValue(viewModel.workingChannelCount, fallback: "Not checked yet")
+                )
+                DragonAdminMetricView(
+                    label: "Checked",
+                    value: viewModel.metricValue(viewModel.checkedChannelCount, fallback: "Not checked yet")
+                )
+                DragonAdminMetricView(
+                    label: "Failed",
+                    value: viewModel.metricValue(viewModel.failedHealthChannelCount, fallback: "Not checked yet")
+                )
+            }
+
+            Text(viewModel.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            Text(viewModel.lastRefreshLabel)
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            if let errorText = viewModel.errorText?.dragonTrimmedOrNil {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(DragonTheme.red)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    Task {
+                        await viewModel.refreshCatalog()
+                    }
+                } label: {
+                    HStack {
+                        if viewModel.status == .loading {
+                            ProgressView()
+                                .tint(.white)
+                        }
+
+                        Text(viewModel.status == .loading ? "Refreshing..." : "Refresh Catalog")
+                    }
+                }
+                .buttonStyle(DragonAdminFilledButtonStyle())
+                .disabled(viewModel.status == .loading)
+
+                Button {
+                    Task {
+                        await viewModel.runHealthCheck()
+                    }
+                } label: {
+                    Text("Run Health Check")
+                }
+                .buttonStyle(DragonAdminOutlineButtonStyle())
+                .disabled(viewModel.status == .loading)
+            }
+
+            if !viewModel.sourceDiagnostics.isEmpty {
+                NavigationLink {
+                    DragonTVAdminDiagnosticsView(
+                        diagnostics: viewModel.sourceDiagnostics,
+                        lastUpdatedAt: viewModel.lastHealthCheckedAt ?? viewModel.lastCatalogUpdatedAt
+                    )
+                } label: {
+                    HStack {
+                        Text("View Per-Source Diagnostics")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
+                    .padding()
+                    .background(Color.black.opacity(0.28))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .task {
+            await viewModel.loadIfNeeded()
         }
     }
 
@@ -254,12 +381,17 @@ final class DragonTVAdminViewModel: ObservableObject {
     @Published private(set) var statusMessage = "No cached TV data available."
     @Published private(set) var errorText: String?
     @Published private(set) var cachedChannelCount: Int?
-    @Published private(set) var lastUpdatedAt: Date?
+    @Published private(set) var rawChannelCount: Int?
+    @Published private(set) var dedupedChannelCount: Int?
+    @Published private(set) var lastCatalogUpdatedAt: Date?
+    @Published private(set) var lastHealthCheckedAt: Date?
     @Published private(set) var sourceCount = 0
     @Published private(set) var enabledSourceCount = 0
     @Published private(set) var workingChannelCount: Int?
+    @Published private(set) var checkedChannelCount: Int?
+    @Published private(set) var failedHealthChannelCount: Int?
     @Published private(set) var diagnosticsCount: Int?
-    @Published private(set) var failedSourceCount: Int?
+    @Published private(set) var catalogFailedSourceCount = 0
     @Published private(set) var interestingDiscoveryCount: Int?
     @Published private(set) var favoriteCount = 0
     @Published private(set) var sourceDiagnostics: [IPTVSourceDiagnostic] = []
@@ -294,25 +426,44 @@ final class DragonTVAdminViewModel: ObservableObject {
         await loadCachedState(defaultMessage: "No cached TV data available.")
     }
 
-    func refresh() async {
+    func refreshCatalog() async {
         status = .loading
         errorText = nil
-        statusMessage = "Refreshing TV playlists and validating streams."
+        statusMessage = "Refreshing the TV playlist catalog."
         reloadLocalSources()
 
         do {
             let result = try await dataSource.refreshChannels()
             favoriteCount = favoritesStore.favoriteCount()
-            apply(
+            applyCatalog(
                 report: result.report,
                 updatedAt: result.refreshedAt,
-                status: .ready,
-                message: refreshMessage(for: result.report)
+                status: .ready
             )
+            statusMessage = refreshMessage(for: result.report)
         } catch {
             errorText = error.localizedDescription
             status = .error
-            statusMessage = "TV refresh failed."
+            statusMessage = "TV catalog refresh failed."
+            favoriteCount = favoritesStore.favoriteCount()
+        }
+    }
+
+    func runHealthCheck() async {
+        status = .loading
+        errorText = nil
+        statusMessage = "Checking channel health with timeouts and limited concurrency."
+        reloadLocalSources()
+
+        do {
+            let result = try await dataSource.runHealthCheck()
+            favoriteCount = favoritesStore.favoriteCount()
+            applyHealth(snapshot: result.snapshot, status: .ready)
+            statusMessage = healthRefreshMessage(for: result.snapshot)
+        } catch {
+            errorText = error.localizedDescription
+            status = .error
+            statusMessage = "TV health check failed."
             favoriteCount = favoritesStore.favoriteCount()
         }
     }
@@ -377,20 +528,24 @@ final class DragonTVAdminViewModel: ObservableObject {
         }
     }
 
-    func metricValue(_ value: Int?) -> String {
+    func metricValue(_ value: Int?, fallback: String = "Unavailable") -> String {
         guard let value else {
-            return "Unavailable"
+            return fallback
         }
 
         return "\(value)"
     }
 
     var lastRefreshLabel: String {
-        guard let lastUpdatedAt else {
-            return "Last refresh: Not available"
+        if let lastHealthCheckedAt {
+            return "Last health check: \(Self.dateFormatter.string(from: lastHealthCheckedAt))"
         }
 
-        return "Last refresh: \(Self.dateFormatter.string(from: lastUpdatedAt))"
+        guard let lastCatalogUpdatedAt else {
+            return "Last update: Not available"
+        }
+
+        return "Last catalog refresh: \(Self.dateFormatter.string(from: lastCatalogUpdatedAt))"
     }
 
     var sourcesStatusText: String {
@@ -399,13 +554,23 @@ final class DragonTVAdminViewModel: ObservableObject {
 
     private func loadCachedState(defaultMessage: String) async {
         do {
-            if let cached = try await cacheStore.loadCachedReport() {
-                apply(
-                    report: cached.report,
-                    updatedAt: cached.cachedAt,
-                    status: .cached,
-                    message: "Loaded TV admin data from local cache."
+            let cachedCatalog = try await cacheStore.loadCachedReport()
+            let cachedHealthSnapshot = try await cacheStore.loadCachedHealthSnapshot()
+
+            if let cachedCatalog {
+                applyCatalog(
+                    report: cachedCatalog.report,
+                    updatedAt: cachedCatalog.cachedAt,
+                    status: .cached
                 )
+
+                if let cachedHealthSnapshot {
+                    applyHealth(snapshot: cachedHealthSnapshot.snapshot, status: .cached)
+                    statusMessage = "Loaded cached TV catalog and last health snapshot."
+                } else {
+                    clearHealthSnapshot(status: .cached)
+                    statusMessage = "Loaded cached TV catalog. Health not checked yet."
+                }
             } else {
                 setEmptyDiagnosticsState(status: .cached, message: defaultMessage)
             }
@@ -414,10 +579,15 @@ final class DragonTVAdminViewModel: ObservableObject {
             errorText = error.localizedDescription
             statusMessage = "Could not read the local TV cache."
             cachedChannelCount = nil
-            lastUpdatedAt = nil
+            rawChannelCount = nil
+            dedupedChannelCount = nil
+            lastCatalogUpdatedAt = nil
+            lastHealthCheckedAt = nil
             workingChannelCount = nil
+            checkedChannelCount = nil
+            failedHealthChannelCount = nil
             diagnosticsCount = nil
-            failedSourceCount = nil
+            catalogFailedSourceCount = 0
             interestingDiscoveryCount = nil
             sourceDiagnostics = []
             reloadLocalSources()
@@ -436,10 +606,15 @@ final class DragonTVAdminViewModel: ObservableObject {
             errorText = error.localizedDescription
             statusMessage = "TV sources changed, but the old TV cache could not be cleared."
             cachedChannelCount = nil
-            lastUpdatedAt = nil
+            rawChannelCount = nil
+            dedupedChannelCount = nil
+            lastCatalogUpdatedAt = nil
+            lastHealthCheckedAt = nil
             workingChannelCount = nil
+            checkedChannelCount = nil
+            failedHealthChannelCount = nil
             diagnosticsCount = nil
-            failedSourceCount = nil
+            catalogFailedSourceCount = 0
             interestingDiscoveryCount = nil
             sourceDiagnostics = []
         }
@@ -450,10 +625,15 @@ final class DragonTVAdminViewModel: ObservableObject {
         statusMessage = message
         errorText = nil
         cachedChannelCount = 0
-        lastUpdatedAt = nil
-        workingChannelCount = 0
+        rawChannelCount = 0
+        dedupedChannelCount = 0
+        lastCatalogUpdatedAt = nil
+        lastHealthCheckedAt = nil
+        workingChannelCount = nil
+        checkedChannelCount = nil
+        failedHealthChannelCount = nil
         diagnosticsCount = 0
-        failedSourceCount = 0
+        catalogFailedSourceCount = 0
         interestingDiscoveryCount = 0
         sourceDiagnostics = []
         reloadLocalSources()
@@ -466,39 +646,64 @@ final class DragonTVAdminViewModel: ObservableObject {
         enabledSourceCount = sources.filter(\.isEnabled).count
     }
 
-    private func apply(
+    private func applyCatalog(
         report: IPTVLoadReport,
         updatedAt: Date,
-        status: Status,
-        message: String
+        status: Status
     ) {
         reloadLocalSources()
         self.status = status
-        statusMessage = message
         errorText = nil
         cachedChannelCount = report.channels.count
-        lastUpdatedAt = updatedAt
-        workingChannelCount = report.validChannelCount
-        diagnosticsCount = report.sourceDiagnostics.count
-        failedSourceCount = report.sourceFailures.count
+        rawChannelCount = report.rawChannelCount
+        dedupedChannelCount = report.dedupedChannelCount
+        lastCatalogUpdatedAt = updatedAt
+        catalogFailedSourceCount = report.sourceFailures.count
         interestingDiscoveryCount = report.interestingChannelDiagnostics.count
-        sourceDiagnostics = report.sourceDiagnostics
+
+        if lastHealthCheckedAt == nil {
+            sourceDiagnostics = report.sourceDiagnostics
+            diagnosticsCount = report.sourceDiagnostics.count
+        }
+    }
+
+    private func applyHealth(snapshot: IPTVHealthSnapshot, status: Status) {
+        self.status = status
+        errorText = nil
+        lastHealthCheckedAt = snapshot.lastCheckedAt
+        workingChannelCount = snapshot.workingChannelCount
+        checkedChannelCount = snapshot.checkedChannelCount
+        failedHealthChannelCount = snapshot.failedChannelCount
+        sourceDiagnostics = snapshot.sourceDiagnostics
+        diagnosticsCount = snapshot.sourceDiagnostics.count
+    }
+
+    private func clearHealthSnapshot(status: Status) {
+        self.status = status
+        lastHealthCheckedAt = nil
+        workingChannelCount = nil
+        checkedChannelCount = nil
+        failedHealthChannelCount = nil
     }
 
     private func refreshMessage(for report: IPTVLoadReport) -> String {
         if report.channels.isEmpty {
             if report.sourceFailures.isEmpty {
-                return "Refresh finished, but no reachable TV channels were found."
+                return "Catalog refresh finished, but no TV channels were parsed."
             }
 
-            return "Refresh finished with source failures and no reachable TV channels."
+            return "Catalog refresh finished with source failures and no TV channels."
         }
 
         if report.sourceFailures.isEmpty {
-            return "Refresh finished with \(report.validChannelCount) working TV channels."
+            return "Catalog refresh finished with \(report.channels.count) TV channels."
         }
 
-        return "Refresh finished with \(report.validChannelCount) working TV channels and \(report.sourceFailures.count) failed source\(report.sourceFailures.count == 1 ? "" : "s")."
+        return "Catalog refresh finished with \(report.channels.count) TV channels and \(report.sourceFailures.count) failed source\(report.sourceFailures.count == 1 ? "" : "s")."
+    }
+
+    private func healthRefreshMessage(for snapshot: IPTVHealthSnapshot) -> String {
+        "Health check finished with \(snapshot.workingChannelCount) working channel\(snapshot.workingChannelCount == 1 ? "" : "s"), \(snapshot.failedChannelCount) failed, \(snapshot.checkedChannelCount) checked."
     }
 
     private static let dateFormatter: DateFormatter = {

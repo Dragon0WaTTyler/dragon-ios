@@ -38,7 +38,7 @@ struct DragonTVAdminDiagnosticsView: View {
                                     )
                                     DragonAdminMetricView(
                                         label: "Working",
-                                        value: "\(diagnostic.validChannelCount)"
+                                        value: diagnostic.validChannelCount.map(String.init) ?? "Not checked yet"
                                     )
                                     DragonAdminMetricView(
                                         label: "Sports/beIN",

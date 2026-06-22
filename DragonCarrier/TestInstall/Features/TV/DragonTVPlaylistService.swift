@@ -2,7 +2,9 @@ import Foundation
 
 protocol DragonTVDataSource {
     func loadCachedChannels() async -> DragonTVCachedChannelsResult?
+    func loadCachedHealthSnapshot() async -> DragonTVCachedHealthSnapshotResult?
     func refreshChannels() async throws -> DragonTVRefreshResult
+    func runHealthCheck() async throws -> DragonTVHealthRefreshResult
 }
 
 struct DragonRemoteM3UDataSource: Sendable {
@@ -17,8 +19,8 @@ struct DragonRemoteM3UDataSource: Sendable {
         self.sources = sources
     }
 
-    func loadWorkingChannelsReport() async -> IPTVLoadReport {
-        await service.loadWorkingChannelsReport(from: sources)
+    func loadCatalogReport() async -> IPTVLoadReport {
+        await service.loadCatalogReport(from: sources)
     }
 }
 
@@ -41,10 +43,33 @@ final class DragonDefaultTVDataSource: DragonTVDataSource {
         try? await cacheStore.loadCachedReport()
     }
 
+    func loadCachedHealthSnapshot() async -> DragonTVCachedHealthSnapshotResult? {
+        try? await cacheStore.loadCachedHealthSnapshot()
+    }
+
     func refreshChannels() async throws -> DragonTVRefreshResult {
         let sources = sourceStore.enabledPlaylistSources()
-        let report = await DragonRemoteM3UDataSource(service: service, sources: sources).loadWorkingChannelsReport()
+        let report = await DragonRemoteM3UDataSource(service: service, sources: sources).loadCatalogReport()
         return await cacheStore.save(report)
+    }
+
+    func runHealthCheck() async throws -> DragonTVHealthRefreshResult {
+        let catalogReport: IPTVLoadReport
+
+        if let cachedCatalog = try? await cacheStore.loadCachedReport() {
+            catalogReport = cachedCatalog.report
+        } else {
+            let sources = sourceStore.enabledPlaylistSources()
+            let fetchedCatalog = await DragonRemoteM3UDataSource(service: service, sources: sources).loadCatalogReport()
+            let cachedCatalog = await cacheStore.save(fetchedCatalog)
+            catalogReport = cachedCatalog.report
+        }
+
+        let snapshot = await service.loadHealthSnapshot(
+            for: catalogReport.channels,
+            sourceDiagnostics: catalogReport.sourceDiagnostics
+        )
+        return await cacheStore.saveHealthSnapshot(snapshot)
     }
 }
 
@@ -73,7 +98,7 @@ struct IPTVPlaylistService: Sendable {
         session: URLSession = IPTVPlaylistService.makeSession(),
         downloadTimeout: TimeInterval = 20,
         requestTimeout: TimeInterval = 5,
-        validationBatchSize: Int = 40,
+        validationBatchSize: Int = 16,
         allowsRangeFallback: Bool = true
     ) {
         self.session = session
@@ -84,20 +109,15 @@ struct IPTVPlaylistService: Sendable {
     }
 
     func loadWorkingChannels(from sources: [IPTVPlaylistSource]) async -> [IPTVChannel] {
-        let report = await loadWorkingChannelsReport(from: sources)
+        let report = await loadCatalogReport(from: sources)
         return report.channels
     }
 
-    func loadWorkingChannelsReport(from sources: [IPTVPlaylistSource]) async -> IPTVLoadReport {
+    func loadCatalogReport(from sources: [IPTVPlaylistSource]) async -> IPTVLoadReport {
         let playlistResults = await fetchPlaylistResults(from: sources)
         let rawChannels = playlistResults.flatMap(\.channels)
         let dedupedChannels = deduplicate(rawChannels)
-        let validationOutcomes = await validate(channels: dedupedChannels)
-        let validatedChannels = validationOutcomes.compactMap(\.validatedChannel)
-        let sourceDiagnostics = buildSourceDiagnostics(
-            from: playlistResults,
-            validatedChannels: validatedChannels
-        )
+        let sourceDiagnostics = buildSourceDiagnostics(from: playlistResults)
         let sourceFailures: [IPTVSourceFailure] = sourceDiagnostics.compactMap { diagnostic in
             guard let errorMessage = diagnostic.errorMessage else {
                 return nil
@@ -110,19 +130,34 @@ struct IPTVPlaylistService: Sendable {
                 message: errorMessage
             )
         }
-        let interestingChannelDiagnostics = buildInterestingChannelDiagnostics(
-            from: dedupedChannels,
-            validationOutcomes: validationOutcomes
-        )
 
         return IPTVLoadReport(
             rawChannelCount: rawChannels.count,
             dedupedChannelCount: dedupedChannels.count,
-            validChannelCount: validatedChannels.count,
             sourceFailures: sourceFailures,
             sourceDiagnostics: sourceDiagnostics,
-            interestingChannelDiagnostics: interestingChannelDiagnostics,
-            channels: validatedChannels
+            interestingChannelDiagnostics: [],
+            channels: dedupedChannels
+        )
+    }
+
+    func loadHealthSnapshot(
+        for channels: [IPTVChannel],
+        sourceDiagnostics: [IPTVSourceDiagnostic]
+    ) async -> IPTVHealthSnapshot {
+        let validationOutcomes = await validate(channels: channels)
+        let workingChannelCount = validationOutcomes.filter(\.isReachable).count
+        let checkedChannelCount = validationOutcomes.count
+
+        return IPTVHealthSnapshot(
+            checkedChannelCount: checkedChannelCount,
+            workingChannelCount: workingChannelCount,
+            failedChannelCount: checkedChannelCount - workingChannelCount,
+            sourceDiagnostics: buildHealthSourceDiagnostics(
+                from: sourceDiagnostics,
+                validationOutcomes: validationOutcomes
+            ),
+            lastCheckedAt: Date()
         )
     }
 
@@ -485,19 +520,8 @@ struct IPTVPlaylistService: Sendable {
     }
 
     private func buildSourceDiagnostics(
-        from playlistResults: [PlaylistFetchResult],
-        validatedChannels: [IPTVChannel]
+        from playlistResults: [PlaylistFetchResult]
     ) -> [IPTVSourceDiagnostic] {
-        let validCountByURL = Dictionary(
-            grouping: validatedChannels.flatMap { channel in
-                channel.sourceURLs.map { ($0.absoluteString, channel.id) }
-            },
-            by: \.0
-        )
-        .mapValues { pairs in
-            Set(pairs.map(\.1)).count
-        }
-
         return playlistResults
             .sorted { $0.source.label.localizedCaseInsensitiveCompare($1.source.label) == .orderedAscending }
             .map { result in
@@ -508,11 +532,43 @@ struct IPTVPlaylistService: Sendable {
                     url: result.source.url,
                     downloadSucceeded: result.downloadSucceeded,
                     parsedChannelCount: result.channels.count,
-                    validChannelCount: validCountByURL[result.source.url.absoluteString] ?? 0,
+                    validChannelCount: nil,
                     interestingMatchCount: interestingMatchCount,
                     errorMessage: result.errorMessage
                 )
             }
+    }
+
+    private func buildHealthSourceDiagnostics(
+        from sourceDiagnostics: [IPTVSourceDiagnostic],
+        validationOutcomes: [ChannelValidationOutcome]
+    ) -> [IPTVSourceDiagnostic] {
+        let validationPairsBySourceURL = Dictionary(
+            grouping: validationOutcomes.flatMap { outcome in
+                outcome.channel.sourceURLs.map { (sourceURL: $0.absoluteString, channelID: outcome.channel.id, isReachable: outcome.isReachable) }
+            },
+            by: \.sourceURL
+        )
+
+        return sourceDiagnostics.map { diagnostic in
+            let pairs = validationPairsBySourceURL[diagnostic.url.absoluteString] ?? []
+            let workingChannelCount = Set(
+                pairs.compactMap { pair in
+                    pair.isReachable ? pair.channelID : nil
+                }
+            ).count
+
+            return IPTVSourceDiagnostic(
+                sourceID: diagnostic.sourceID,
+                label: diagnostic.label,
+                url: diagnostic.url,
+                downloadSucceeded: diagnostic.downloadSucceeded,
+                parsedChannelCount: diagnostic.parsedChannelCount,
+                validChannelCount: workingChannelCount,
+                interestingMatchCount: diagnostic.interestingMatchCount,
+                errorMessage: diagnostic.errorMessage
+            )
+        }
     }
 
     private func buildInterestingChannelDiagnostics(

@@ -84,6 +84,10 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
         return url.absoluteString
     }
 
+    var displayGroupLabel: String? {
+        Self.normalizedGroupLabel(group)
+    }
+
     func merged(with incoming: IPTVChannel) -> IPTVChannel {
         IPTVChannel(
             id: id,
@@ -126,6 +130,24 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
 
         return hostLabel
     }
+
+    private static func normalizedGroupLabel(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.dragonTrimmedOrNil else {
+            return nil
+        }
+
+        let normalized = rawValue
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalized {
+        case "arab", "arabic", "العربية":
+            return "Arabic"
+        default:
+            return rawValue
+        }
+    }
 }
 
 struct IPTVSourceFailure: Identifiable, Codable, Hashable, Sendable {
@@ -145,7 +167,7 @@ struct IPTVSourceDiagnostic: Identifiable, Codable, Hashable, Sendable {
     let url: URL
     let downloadSucceeded: Bool
     let parsedChannelCount: Int
-    let validChannelCount: Int
+    let validChannelCount: Int?
     let interestingMatchCount: Int
     let errorMessage: String?
 
@@ -178,10 +200,17 @@ struct IPTVInterestingChannelDiagnostic: Identifiable, Codable, Hashable, Sendab
     }
 }
 
+struct IPTVHealthSnapshot: Codable, Sendable {
+    let checkedChannelCount: Int
+    let workingChannelCount: Int
+    let failedChannelCount: Int
+    let sourceDiagnostics: [IPTVSourceDiagnostic]
+    let lastCheckedAt: Date
+}
+
 struct IPTVLoadReport: Codable, Sendable {
     let rawChannelCount: Int
     let dedupedChannelCount: Int
-    let validChannelCount: Int
     let sourceFailures: [IPTVSourceFailure]
     let sourceDiagnostics: [IPTVSourceDiagnostic]
     let interestingChannelDiagnostics: [IPTVInterestingChannelDiagnostic]
@@ -199,7 +228,6 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
     case documentary
     case us
     case uk
-    case arab
 
     var id: String {
         rawValue
@@ -227,8 +255,6 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
             return "US"
         case .uk:
             return "UK"
-        case .arab:
-            return "Arab"
         }
     }
 
@@ -308,18 +334,6 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
             return ["streams-us-samsung"]
         case .uk:
             return ["streams-uk-bbc"]
-        case .arab:
-            return [
-                "language-ara",
-                "streams-ma",
-                "streams-qa",
-                "streams-sa",
-                "streams-ae",
-                "streams-bh",
-                "streams-kw",
-                "streams-om",
-                "streams-iq"
-            ]
         }
     }
 }
