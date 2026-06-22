@@ -343,14 +343,16 @@ struct ArticleDetailView: View {
         readerBackgroundStyle.palette
     }
 
+    private var detailTextProbe: String {
+        [viewModel.title, viewModel.source, viewModel.displayBodyText].joined(separator: " ")
+    }
+
     private var detailDirection: DragonTextDirection {
-        readerDirectionMode.resolvedDirection(
-            for: [viewModel.title, viewModel.source, viewModel.displayBodyText].joined(separator: " ")
-        )
+        readerDirectionMode.resolvedDirection(for: detailTextProbe)
     }
 
     private var bodyDirection: DragonTextDirection {
-        readerDirectionMode.resolvedBodyDirection(for: viewModel.displayBodyText)
+        readerDirectionMode.resolvedDirection(for: detailTextProbe)
     }
 
     private var titleDirection: DragonTextDirection {
@@ -683,6 +685,9 @@ private struct ArticleTextCard: View {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(palette.secondaryText)
+                .frame(maxWidth: .infinity, alignment: direction.frameAlignment)
+                .environment(\.layoutDirection, direction.layoutDirection)
+                .multilineTextAlignment(direction.alignment)
 
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
