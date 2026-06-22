@@ -44,6 +44,7 @@ struct DragonMoviesRefreshResult {
 
 protocol DragonMoviesDataSource {
     var sourceLabel: String { get }
+    var isConfigured: Bool { get }
 
     func loadCachedMovies(pageLimit: Int, maxCatalogCount: Int) async -> DragonCachedMoviesResult?
     func refreshMovies(pageLimit: Int, maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult
@@ -66,32 +67,29 @@ extension DragonAPIClient: DragonMoviesPagingClient {}
 
 enum DragonMoviesDataSourceError: LocalizedError {
     case backendReturnedNotOK
+    case notionNotConfigured
 
     var errorDescription: String? {
         switch self {
         case .backendReturnedNotOK:
             return "Backend returned an invalid movie catalog."
+        case .notionNotConfigured:
+            return "Notion Movies is not configured."
         }
     }
 }
 
 final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
     private let notionLoader: DragonMoviesRemoteCatalogLoader
-    private let legacyLoader: DragonMoviesRemoteCatalogLoader
-    private let snapshotFallback: DragonMoviesFetching?
     private let responseCache: DragonResponseCache
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     init(
         notionLoader: DragonMoviesRemoteCatalogLoader = DragonNotionMoviesDataSource(),
-        legacyLoader: DragonMoviesRemoteCatalogLoader = DragonLegacyAPIMoviesDataSource(),
-        snapshotFallback: DragonMoviesFetching? = DragonBundledSnapshotDataSource.shared,
         responseCache: DragonResponseCache = .shared
     ) {
         self.notionLoader = notionLoader
-        self.legacyLoader = legacyLoader
-        self.snapshotFallback = snapshotFallback
         self.responseCache = responseCache
 
         let encoder = JSONEncoder()
@@ -104,11 +102,10 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
     }
 
     func loadCachedMovies(pageLimit: Int, maxCatalogCount: Int) async -> DragonCachedMoviesResult? {
-        let loader = activeLoader()
         let cacheURL = dragonMoviesCacheURL(
             pageLimit: pageLimit,
             maxCatalogCount: maxCatalogCount,
-            cacheIdentity: loader.cacheIdentity
+            cacheIdentity: notionLoader.cacheIdentity
         )
 
         guard let cachedResponse = await responseCache.load(for: cacheURL),
@@ -126,15 +123,18 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
     }
 
     func refreshMovies(pageLimit: Int, maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult {
-        let loader = activeLoader()
-        let result = try await loader.refreshMovies(pageLimit: pageLimit, maxCatalogCount: maxCatalogCount)
+        guard notionLoader.isConfigured else {
+            throw DragonMoviesDataSourceError.notionNotConfigured
+        }
+
+        let result = try await notionLoader.refreshMovies(pageLimit: pageLimit, maxCatalogCount: maxCatalogCount)
 
         if !result.response.items.isEmpty {
             await save(
                 response: result.response,
                 pageLimit: pageLimit,
                 maxCatalogCount: maxCatalogCount,
-                cacheIdentity: loader.cacheIdentity,
+                cacheIdentity: notionLoader.cacheIdentity,
                 backendURL: result.backendURL,
                 pageCount: result.pageCount
             )
@@ -144,32 +144,15 @@ final class DragonDefaultMoviesDataSource: DragonMoviesDataSource {
     }
 
     func loadBundledFallback(maxCatalogCount: Int) async throws -> DragonMoviesRefreshResult? {
-        guard let snapshotFallback else {
-            return nil
-        }
-
-        let fallbackResult = try await snapshotFallback.fetchMovies(limit: maxCatalogCount)
-        guard dragonIsSnapshotFallback(fallbackResult.source) else {
-            return nil
-        }
-
-        let loader = activeLoader()
-        let refreshedAt = fallbackResult.source.cachedMetadata?.cachedAt ?? Date()
-        return DragonMoviesRefreshResult(
-            response: fallbackResult.value,
-            refreshedAt: refreshedAt,
-            source: fallbackResult.value.items.isEmpty ? .empty : .bundledSnapshot,
-            backendURL: loader.fallbackSourceLabel,
-            pageCount: 1
-        )
-    }
-
-    private func activeLoader() -> DragonMoviesRemoteCatalogLoader {
-        notionLoader.isConfigured ? notionLoader : legacyLoader
+        nil
     }
 
     var sourceLabel: String {
-        activeLoader().fallbackSourceLabel
+        notionLoader.isConfigured ? notionLoader.fallbackSourceLabel : ""
+    }
+
+    var isConfigured: Bool {
+        notionLoader.isConfigured
     }
 
     private func save(

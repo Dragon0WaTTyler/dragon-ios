@@ -381,6 +381,8 @@ func dragonUserFacingMessage(for notionError: DragonNotionMoviesDataSourceError)
             return message
         }
         return dragonUserFacingMessage(forHTTPStatus: statusCode)
+    case .requestFailed(let message):
+        return message
     }
 }
 

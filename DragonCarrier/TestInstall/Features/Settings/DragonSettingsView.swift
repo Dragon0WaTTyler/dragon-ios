@@ -40,15 +40,15 @@ struct DragonSettingsView: View {
                             .foregroundStyle(.white)
 
                         sectionCard(
-                            title: "Dragon Connection",
-                            subtitle: "Configure the backend URL and test the current server."
+                            title: "Developer / Legacy Backend",
+                            subtitle: "Developer-only backend endpoint. Native Movies no longer uses this automatically."
                         ) {
                             connectionCardContent
                         }
 
                         sectionCard(
                             title: "Movies in Notion",
-                            subtitle: "When configured, Movies loads from Notion first."
+                            subtitle: "Movies loads natively from Notion with local cache fallback."
                         ) {
                             notionCardContent
                         }
@@ -227,7 +227,7 @@ struct DragonSettingsView: View {
 
     private var notionCardContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("When configured, Movies loads from Notion first. If Notion is not configured, Dragon keeps using the legacy API.")
+            Text("Configure a Notion token and source ID to enable native Movies loading. Without this, Movies uses cached data only and shows a configuration prompt.")
                 .font(.caption)
                 .foregroundStyle(.gray)
 

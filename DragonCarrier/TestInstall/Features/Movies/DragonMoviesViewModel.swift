@@ -21,11 +21,15 @@ final class DragonMoviesViewModel: ObservableObject {
     @Published private(set) var fetchedPageCount: Int
     @Published private(set) var loadSource: DragonMoviesLoadSource
     @Published private(set) var backendURLText: String
+    @Published private(set) var needsConfiguration: Bool
 
     private let dataSource: DragonMoviesDataSource
     private let pageLimit: Int
     private let maxCatalogCount: Int
     private var loadGeneration = 0
+    private let notionNotConfiguredMessage = "Notion Movies is not configured."
+    private let noCachedMoviesMessage = "No cached movies available."
+    private let configureMoviesMessage = "Configure Movies in Settings."
 
     init(
         dataSource: DragonMoviesDataSource,
@@ -39,7 +43,8 @@ final class DragonMoviesViewModel: ObservableObject {
         initialBackendTotal: Int? = nil,
         initialFetchedPageCount: Int = 0,
         initialLoadSource: DragonMoviesLoadSource = .empty,
-        initialBackendURLText: String = ""
+        initialBackendURLText: String = "",
+        initialNeedsConfiguration: Bool = false
     ) {
         self.dataSource = dataSource
         self.pageLimit = pageLimit
@@ -53,6 +58,7 @@ final class DragonMoviesViewModel: ObservableObject {
         self.fetchedPageCount = initialFetchedPageCount
         self.loadSource = initialLoadSource
         self.backendURLText = initialBackendURLText
+        self.needsConfiguration = initialNeedsConfiguration
     }
 
     var isLoading: Bool {
@@ -70,12 +76,45 @@ final class DragonMoviesViewModel: ObservableObject {
         movies.count
     }
 
+    var emptyStateTitle: String {
+        if needsConfiguration {
+            return notionNotConfiguredMessage
+        }
+
+        if case .failed = state {
+            return "Could not load movies"
+        }
+
+        return "No movies found."
+    }
+
+    var emptyStateMessage: String {
+        if needsConfiguration {
+            return "\(noCachedMoviesMessage) \(configureMoviesMessage)"
+        }
+
+        if case .failed(let message) = state {
+            return message
+        }
+
+        return "Pull to refresh to check again."
+    }
+
+    var emptyStateButtonTitle: String {
+        if case .failed = state {
+            return "Try Again"
+        }
+
+        return "Reload"
+    }
+
     func loadMovies() async {
         loadGeneration += 1
         let generation = loadGeneration
         var cachedCatalogWasLoaded = false
 
         errorText = ""
+        needsConfiguration = false
 
         if let cachedResult = await dataSource.loadCachedMovies(pageLimit: pageLimit, maxCatalogCount: maxCatalogCount) {
             cachedCatalogWasLoaded = true
@@ -91,22 +130,27 @@ final class DragonMoviesViewModel: ObservableObject {
                 source: .cache,
                 movieCount: cachedResult.response.items.count,
                 backendURL: cachedResult.backendURL,
-                detail: "Refreshing live data"
+                detail: dataSource.isConfigured ? "Refreshing live data" : configureMoviesMessage
             )
         } else {
             movies = []
             lastUpdatedAt = nil
             state = .loading
             loadSource = .empty
-            backendURLText = dataSource.sourceLabel
+            backendURLText = ""
             statusText = sourceStatusLine(
                 source: .empty,
                 movieCount: 0,
                 backendURL: backendURLText,
-                detail: "Loading live data"
+                detail: dataSource.isConfigured ? "Loading live data" : configureMoviesMessage
             )
             backendTotal = nil
             fetchedPageCount = 0
+        }
+
+        if !dataSource.isConfigured {
+            applyConfigurationState(usingCachedMovies: cachedCatalogWasLoaded && hasVisibleContent)
+            return
         }
 
         do {
@@ -180,36 +224,44 @@ final class DragonMoviesViewModel: ObservableObject {
                 return
             }
 
-            if let fallbackResult = try? await dataSource.loadBundledFallback(maxCatalogCount: maxCatalogCount),
-               generation == loadGeneration,
-               !fallbackResult.response.items.isEmpty {
-                applyLoadedCatalog(
-                    response: fallbackResult.response,
-                    pageCount: fallbackResult.pageCount,
-                    refreshedAt: fallbackResult.refreshedAt,
-                    source: .bundledSnapshot,
-                    backendURL: fallbackResult.backendURL
-                )
-                statusText = sourceStatusLine(
-                    source: .bundledSnapshot,
-                    movieCount: fallbackResult.response.items.count,
-                    backendURL: fallbackResult.backendURL,
-                    detail: "Live backend unavailable"
-                )
-                errorText = message
-                state = .partialLoaded(message)
-            } else {
-                loadSource = .empty
-                backendURLText = dataSource.sourceLabel
-                statusText = sourceStatusLine(
-                    source: .empty,
-                    movieCount: 0,
-                    backendURL: backendURLText
-                )
-                errorText = message
-                state = .failed(message)
-            }
+            loadSource = .empty
+            backendURLText = ""
+            statusText = sourceStatusLine(
+                source: .empty,
+                movieCount: 0,
+                backendURL: backendURLText
+            )
+            errorText = message
+            state = .failed(message)
         }
+    }
+
+    private func applyConfigurationState(usingCachedMovies: Bool) {
+        needsConfiguration = true
+
+        if usingCachedMovies {
+            loadSource = .cache
+            statusText = sourceStatusLine(
+                source: .cache,
+                movieCount: movies.count,
+                backendURL: backendURLText,
+                detail: configureMoviesMessage
+            )
+            errorText = notionNotConfiguredMessage
+            state = .partialLoaded(notionNotConfiguredMessage)
+            return
+        }
+
+        loadSource = .empty
+        backendURLText = ""
+        statusText = sourceStatusLine(
+            source: .empty,
+            movieCount: 0,
+            backendURL: "",
+            detail: configureMoviesMessage
+        )
+        errorText = notionNotConfiguredMessage
+        state = .failed(notionNotConfiguredMessage)
     }
 
     private func applyLoadedCatalog(

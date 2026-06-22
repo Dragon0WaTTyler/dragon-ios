@@ -5,10 +5,10 @@ struct DragonMoviesView: View {
     @StateObject private var viewModel: DragonMoviesViewModel
     @State private var searchText = ""
 
-    init(dataSource: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
+    init(dataSource _: DragonDataSource = DragonDataSourceFactory.defaultDataSource) {
         _viewModel = StateObject(
             wrappedValue: DragonMoviesViewModel(
-                dataSource: DragonDefaultMoviesDataSource(snapshotFallback: dataSource)
+                dataSource: DragonDefaultMoviesDataSource()
             )
         )
     }
@@ -73,18 +73,18 @@ struct DragonMoviesView: View {
 
                         if !viewModel.errorText.isEmpty && viewModel.movies.isEmpty {
                             MoviesStateCard(
-                                title: "Could not load movies",
-                                message: viewModel.errorText,
-                                buttonTitle: "Try Again"
+                                title: viewModel.emptyStateTitle,
+                                message: viewModel.emptyStateMessage,
+                                buttonTitle: viewModel.emptyStateButtonTitle
                             ) {
                                 await viewModel.loadMovies()
                             }
                         } else if filteredMovies.isEmpty {
                             if viewModel.movies.isEmpty {
                                 MoviesStateCard(
-                                    title: "No movies found.",
-                                    message: "Pull to refresh to check again.",
-                                    buttonTitle: "Reload"
+                                    title: viewModel.emptyStateTitle,
+                                    message: viewModel.emptyStateMessage,
+                                    buttonTitle: viewModel.emptyStateButtonTitle
                                 ) {
                                     await viewModel.loadMovies()
                                 }

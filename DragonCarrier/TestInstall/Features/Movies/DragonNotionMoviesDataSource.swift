@@ -9,6 +9,7 @@ enum DragonNotionMoviesDataSourceError: LocalizedError {
     case dataSourceNotFound
     case databaseHasNoDataSources
     case httpStatus(Int, String)
+    case requestFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +25,8 @@ enum DragonNotionMoviesDataSourceError: LocalizedError {
             return "Notion database has no data sources."
         case .httpStatus(let statusCode, let message):
             return message.isEmpty ? "Notion request failed (\(statusCode))." : message
+        case .requestFailed(let message):
+            return message
         }
     }
 }
@@ -277,7 +280,23 @@ final class DragonNotionMoviesDataSource: DragonMoviesRemoteCatalogLoader {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let urlError as URLError {
+            throw DragonNotionMoviesDataSourceError.requestFailed(notionRequestFailureMessage(for: urlError))
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain {
+                throw DragonNotionMoviesDataSourceError.requestFailed(
+                    notionRequestFailureMessage(for: URLError(_nsError: nsError))
+                )
+            }
+            throw error
+        }
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DragonNotionMoviesDataSourceError.invalidResponse
         }
@@ -405,6 +424,24 @@ final class DragonNotionMoviesDataSource: DragonMoviesRemoteCatalogLoader {
             return property
         }
         return nil
+    }
+}
+
+private func notionRequestFailureMessage(for urlError: URLError) -> String {
+    switch urlError.code {
+    case .notConnectedToInternet,
+         .cannotConnectToHost,
+         .networkConnectionLost,
+         .dnsLookupFailed,
+         .internationalRoamingOff,
+         .callIsActive,
+         .dataNotAllowed,
+         .secureConnectionFailed:
+        return "Could not reach Notion."
+    case .timedOut:
+        return "Notion request timed out."
+    default:
+        return "Could not load Notion movies."
     }
 }
 
