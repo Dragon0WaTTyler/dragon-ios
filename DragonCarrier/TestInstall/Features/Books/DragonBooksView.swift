@@ -204,7 +204,7 @@ struct BookRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             Group {
-                if let coverURL = coverURL {
+                if let coverURL = book.resolvedCoverURL {
                     AsyncImage(url: coverURL) { phase in
                         switch phase {
                         case .success(let image):
@@ -280,14 +280,6 @@ struct BookRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private var coverURL: URL? {
-        let trimmed = book.cover.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-        return URL(string: trimmed)
-    }
-
     private var placeholderCover: some View {
         ZStack {
             Color.black.opacity(0.45)
@@ -357,14 +349,6 @@ struct BooksStateCard: View {
 struct BookDetailView: View {
     let book: DragonBook
 
-    private var coverURL: URL? {
-        let trimmed = book.cover.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-        return URL(string: trimmed)
-    }
-
     private var authorsText: String {
         let authors = book.authors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         if !authors.isEmpty {
@@ -385,7 +369,7 @@ struct BookDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .top, spacing: 16) {
-                        BookCoverView(url: coverURL, size: CGSize(width: 92, height: 138))
+                        BookCoverView(url: book.resolvedCoverURL, size: CGSize(width: 92, height: 138))
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text(book.title.isEmpty ? "Untitled book" : book.title)

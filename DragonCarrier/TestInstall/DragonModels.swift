@@ -472,11 +472,12 @@ extension DragonArticle {
     }
 
     var resolvedImageURL: URL? {
-        DragonArticle.firstValidURL(in: [thumbnail, image])
+        DragonRemoteMediaURLResolver.firstValidURL(in: [thumbnail, image])
+            ?? DragonRemoteMediaURLResolver.firstImageURL(inHTMLValues: [content_html, excerpt])
     }
 
     var resolvedOriginalURL: URL? {
-        DragonArticle.firstValidURL(in: [original_url, canonical_url, url])
+        DragonRemoteMediaURLResolver.firstValidURL(in: [original_url, canonical_url, url])
     }
 
     var hasSavedIndicator: Bool {
@@ -510,35 +511,6 @@ extension DragonArticle {
 
         return publishedDate <= referenceDate
             && publishedDate >= referenceDate.addingTimeInterval(-86_400)
-    }
-
-    private static func firstValidURL(in values: [String]) -> URL? {
-        values.compactMap(sanitizedURL).first
-    }
-
-    private static func sanitizedURL(_ rawValue: String) -> URL? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        var candidates = [trimmed]
-        if trimmed.hasPrefix("//") {
-            candidates.insert("https:\(trimmed)", at: 0)
-        }
-        candidates.append(contentsOf: candidates.map { $0.replacingOccurrences(of: " ", with: "%20") })
-
-        for candidate in candidates {
-            guard let url = URL(string: candidate),
-                  let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                continue
-            }
-
-            return url
-        }
-
-        return nil
     }
 
     private static func date(from rawValue: String) -> Date? {
@@ -961,6 +933,10 @@ struct DragonBook: Codable, Identifiable {
         id
     }
 
+    var resolvedCoverURL: URL? {
+        DragonRemoteMediaURLResolver.firstValidURL(in: [cover])
+    }
+
     private static func decodeString(
         _ container: KeyedDecodingContainer<CodingKeys>,
         keys: [CodingKeys],
@@ -1015,6 +991,77 @@ struct DragonBook: Codable, Identifiable {
 
         return []
     }
+}
+
+private enum DragonRemoteMediaURLResolver {
+    static func firstValidURL(in values: [String]) -> URL? {
+        values.compactMap(sanitizedURL).first
+    }
+
+    static func firstImageURL(inHTMLValues values: [String]) -> URL? {
+        for value in values {
+            guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+
+            for pattern in imagePatterns {
+                if let match = firstMatch(for: pattern, in: value, captureGroup: 1),
+                   let url = sanitizedURL(match) {
+                    return url
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func sanitizedURL(_ rawValue: String) -> URL? {
+        let trimmed = DragonArticleTextCleaner.decodedEntities(rawValue)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'<>(),"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        var candidates = [trimmed]
+        if trimmed.hasPrefix("//") {
+            candidates.insert("https:\(trimmed)", at: 0)
+        }
+        candidates.append(contentsOf: candidates.map { $0.replacingOccurrences(of: " ", with: "%20") })
+
+        for candidate in candidates {
+            guard let url = URL(string: candidate),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                continue
+            }
+
+            return url
+        }
+
+        return nil
+    }
+
+    private static func firstMatch(for pattern: String, in value: String, captureGroup: Int) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = expression.firstMatch(in: value, options: [], range: range),
+              let captureRange = Range(match.range(at: captureGroup), in: value) else {
+            return nil
+        }
+
+        return String(value[captureRange])
+    }
+
+    private static let imagePatterns = [
+        #"<meta[^>]+(?:property|name)\s*=\s*["'](?:og:image|twitter:image)["'][^>]+content\s*=\s*["']([^"']+)["'][^>]*>"#,
+        #"<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>"#,
+        #"<media:content[^>]+url\s*=\s*["']([^"']+)["'][^>]*>"#,
+        #"<media:thumbnail[^>]+url\s*=\s*["']([^"']+)["'][^>]*>"#
+    ]
 }
 
 struct DragonMoviesResponse: Codable {
