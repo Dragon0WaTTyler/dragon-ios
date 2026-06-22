@@ -34,49 +34,38 @@ struct DragonSettingsView: View {
                 DragonTheme.background.ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 22) {
                         Text("Settings")
                             .font(.system(size: 34, weight: .bold))
                             .foregroundStyle(.white)
 
-                        Text("Dragon connection")
-                            .font(.headline)
-                            .foregroundStyle(.gray)
-
-                        backendCard
-
-                        notionCard
-
-                        cacheCard
-
-                        adminCard
-
-                        HStack(spacing: 12) {
-                            Button("Save") {
-                                saveBackendURL()
-                            }
-                            .buttonStyle(DragonFilledButtonStyle())
-
-                            Button {
-                                checkBackend()
-                            } label: {
-                                HStack {
-                                    if isChecking {
-                                        ProgressView()
-                                            .tint(.white)
-                                    }
-
-                                    Text(isChecking ? "Testing..." : "Test Connection")
-                                }
-                            }
-                            .buttonStyle(DragonFilledButtonStyle())
-                            .disabled(isChecking)
+                        sectionCard(
+                            title: "Dragon Connection",
+                            subtitle: "Configure the backend URL and test the current server."
+                        ) {
+                            connectionCardContent
                         }
 
-                        Button("Reset backend URL") {
-                            resetBackendURL()
+                        sectionCard(
+                            title: "Movies in Notion",
+                            subtitle: "When configured, Movies loads from Notion first."
+                        ) {
+                            notionCardContent
                         }
-                        .buttonStyle(DragonOutlineButtonStyle())
+
+                        sectionCard(
+                            title: "Articles / Cache",
+                            subtitle: "Inspect and clear stored responses used by the app."
+                        ) {
+                            cacheCardContent
+                        }
+
+                        sectionCard(
+                            title: "Developer Debug",
+                            subtitle: "Local section controls, diagnostics, and admin tools."
+                        ) {
+                            developerDebugCardContent
+                        }
                     }
                     .padding(24)
                     .padding(.bottom, 24)
@@ -101,12 +90,8 @@ struct DragonSettingsView: View {
         }
     }
 
-    private var backendCard: some View {
+    private var connectionCardContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Backend URL")
-                .font(.caption)
-                .foregroundStyle(.gray)
-
             TextField("http://127.0.0.1:5000", text: $backendURLDraft)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
@@ -139,21 +124,40 @@ struct DragonSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.gray)
             }
+
+            HStack(spacing: 12) {
+                Button("Save") {
+                    saveBackendURL()
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+
+                Button {
+                    checkBackend()
+                } label: {
+                    HStack {
+                        if isChecking {
+                            ProgressView()
+                                .tint(.white)
+                        }
+
+                        Text(isChecking ? "Testing..." : "Test Connection")
+                    }
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+                .disabled(isChecking)
+            }
+
+            Button("Reset backend URL") {
+                resetBackendURL()
+            }
+            .buttonStyle(DragonOutlineButtonStyle())
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DragonTheme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private var cacheCard: some View {
+    private var cacheCardContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Cache Debug")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-
                     Text("\(totalCacheCount) total cached response\(totalCacheCount == 1 ? "" : "s")")
                         .font(.footnote)
                         .foregroundStyle(.gray)
@@ -219,18 +223,10 @@ struct DragonSettingsView: View {
                 .disabled(isRefreshingCacheInfo)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DragonTheme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private var notionCard: some View {
+    private var notionCardContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Movies in Notion")
-                .font(.headline)
-                .foregroundStyle(.white)
-
             Text("When configured, Movies loads from Notion first. If Notion is not configured, Dragon keeps using the legacy API.")
                 .font(.caption)
                 .foregroundStyle(.gray)
@@ -317,18 +313,10 @@ struct DragonSettingsView: View {
             }
             .buttonStyle(DragonOutlineButtonStyle())
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DragonTheme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
-    private var adminCard: some View {
+    private var developerDebugCardContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Admin")
-                .font(.headline)
-                .foregroundStyle(.gray)
-
             NavigationLink {
                 DragonAdminView()
             } label: {
@@ -360,6 +348,34 @@ struct DragonSettingsView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private func sectionCard<Content: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DragonTheme.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(DragonTheme.red.opacity(0.18), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
     private func saveBackendURL() {
