@@ -71,6 +71,8 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
     let url: URL
     let tvgId: String?
     let group: String?
+    let category: String?
+    let metadataLabels: [String]?
     let logo: URL?
     let httpUserAgent: String?
     let sourceURLs: [URL]
@@ -85,16 +87,36 @@ struct IPTVChannel: Identifiable, Codable, Hashable, Sendable {
     }
 
     var displayGroupLabel: String? {
-        Self.normalizedGroupLabel(group)
+        effectiveMetadataLabels.lazy
+            .compactMap(Self.normalizedGroupLabel(_:))
+            .first
+    }
+
+    var canonicalCategoryTags: Set<DragonTVCategoryTag> {
+        DragonTVCategoryNormalizer.tags(for: self)
+    }
+
+    var effectiveMetadataLabels: [String] {
+        let labels = metadataLabels?.compactMap(\.dragonTrimmedOrNil) ?? []
+        if !labels.isEmpty {
+            return labels.dragonOrderedUnique()
+        }
+
+        return [group, category]
+            .compactMap { $0?.dragonTrimmedOrNil }
+            .dragonOrderedUnique()
     }
 
     func merged(with incoming: IPTVChannel) -> IPTVChannel {
-        IPTVChannel(
+        let mergedMetadataLabels = (effectiveMetadataLabels + incoming.effectiveMetadataLabels).dragonOrderedUnique()
+        return IPTVChannel(
             id: id,
             name: name,
             url: url,
             tvgId: tvgId ?? incoming.tvgId,
             group: group ?? incoming.group,
+            category: category ?? incoming.category,
+            metadataLabels: mergedMetadataLabels.isEmpty ? nil : mergedMetadataLabels,
             logo: logo ?? incoming.logo,
             httpUserAgent: httpUserAgent ?? incoming.httpUserAgent,
             sourceURLs: Array(NSOrderedSet(array: sourceURLs + incoming.sourceURLs)) as? [URL] ?? sourceURLs,
@@ -221,13 +243,14 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case favorites
     case arabic
-    case english
-    case news
     case sports
     case movies
-    case documentary
-    case us
-    case uk
+    case news
+    case docs
+    case kids
+    case music
+    case general
+    case other
 
     var id: String {
         rawValue
@@ -241,20 +264,22 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
             return "Favorites"
         case .arabic:
             return "Arabic"
-        case .english:
-            return "English"
-        case .news:
-            return "News"
         case .sports:
             return "Sports"
         case .movies:
             return "Movies"
-        case .documentary:
-            return "Documentary"
-        case .us:
-            return "US"
-        case .uk:
-            return "UK"
+        case .news:
+            return "News"
+        case .docs:
+            return "Docs"
+        case .kids:
+            return "Kids"
+        case .music:
+            return "Music"
+        case .general:
+            return "General"
+        case .other:
+            return "Other"
         }
     }
 
@@ -265,76 +290,179 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
         case .favorites:
             return channel.isFavorite
         default:
-            let supportedSourceIDs = sourceIDs
-            let sourceLookup = IPTVPlaylistSource.effectiveLookupByURLString()
-            return channel.sourceURLs.contains { sourceURL in
-                guard let source = sourceLookup[sourceURL.absoluteString] else {
-                    return false
-                }
-
-                return supportedSourceIDs.contains(source.id)
+            guard let categoryTag else {
+                return false
             }
+
+            return channel.canonicalCategoryTags.contains(categoryTag)
         }
     }
 
-    private var sourceIDs: Set<String> {
+    private var categoryTag: DragonTVCategoryTag? {
         switch self {
         case .all, .favorites:
-            return []
+            return nil
         case .arabic:
-            return [
-                "language-ara",
-                "streams-ma",
-                "streams-qa",
-                "streams-sa",
-                "streams-ae",
-                "streams-bh",
-                "streams-kw",
-                "streams-om",
-                "streams-iq"
-            ]
-        case .english:
-            return [
-                "language-eng",
-                "streams-uk-bbc",
-                "streams-us-samsung"
-            ]
-        case .news:
-            return [
-                "category-news",
-                "streams-qa",
-                "streams-sa",
-                "streams-ae",
-                "streams-uk-bbc",
-                "streams-fr",
-                "streams-de",
-                "streams-us-samsung"
-            ]
+            return .arabic
         case .sports:
-            return [
-                "streams-ma",
-                "streams-qa",
-                "streams-sa",
-                "streams-ae",
-                "streams-bh",
-                "streams-kw",
-                "streams-om",
-                "streams-iq"
-            ]
+            return .sports
         case .movies:
-            return ["category-movies"]
-        case .documentary:
-            return [
-                "category-documentary",
-                "streams-fr",
-                "streams-de",
-                "streams-us-samsung"
-            ]
-        case .us:
-            return ["streams-us-samsung"]
-        case .uk:
-            return ["streams-uk-bbc"]
+            return .movies
+        case .news:
+            return .news
+        case .docs:
+            return .docs
+        case .kids:
+            return .kids
+        case .music:
+            return .music
+        case .general:
+            return .general
+        case .other:
+            return .other
         }
+    }
+}
+
+enum DragonTVCategoryTag: String, CaseIterable, Sendable {
+    case arabic
+    case sports
+    case movies
+    case news
+    case docs
+    case kids
+    case music
+    case general
+    case other
+}
+
+private enum DragonTVCategoryNormalizer {
+    static func tags(for channel: IPTVChannel) -> Set<DragonTVCategoryTag> {
+        let metadataLabels = channel.effectiveMetadataLabels
+        if !metadataLabels.isEmpty {
+            let metadataTags = tags(in: metadataLabels)
+            return metadataTags.isEmpty ? [.other] : metadataTags
+        }
+
+        let nameTags = tags(in: [channel.name])
+        return nameTags.isEmpty ? [.other] : nameTags
+    }
+
+    private static func tags(in rawValues: [String]) -> Set<DragonTVCategoryTag> {
+        var tags: Set<DragonTVCategoryTag> = []
+
+        for rawValue in rawValues {
+            let normalizedValue = normalize(rawValue)
+            guard !normalizedValue.isEmpty else {
+                continue
+            }
+
+            let tokenSet = Set(tokens(in: normalizedValue))
+
+            if matchesArabic(normalizedValue, tokenSet: tokenSet) {
+                tags.insert(.arabic)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["sport", "sports", "football", "soccer", "basketball", "baseball", "cricket", "tennis", "golf", "boxing", "wrestling", "mma", "motorsport", "racing", "espn", "eurosport"],
+                phrases: ["bein sports", "sky sports", "fox sports", "nbc sports", "nfl network", "nba tv", "mlb network", "nhl network"]
+            ) {
+                tags.insert(.sports)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["movie", "movies", "cinema", "film", "films", "cinemax"],
+                phrases: ["box office", "movie channel", "film channel"]
+            ) {
+                tags.insert(.movies)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["news", "newsroom", "newshour", "cnn", "cnbc", "msnbc", "euronews"],
+                phrases: ["breaking news", "world news", "news channel", "al jazeera news", "france 24", "sky news", "bbc news", "fox news", "dw news"]
+            ) {
+                tags.insert(.news)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["documentary", "documentaries", "docs", "docu"],
+                phrases: ["doc channel", "documentary channel"]
+            ) {
+                tags.insert(.docs)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["kids", "kid", "children", "childrens", "cartoon", "cartoons", "toons", "junior", "youth"],
+                phrases: ["cartoon network", "disney junior", "nick jr", "kids channel", "children channel", "family kids"]
+            ) {
+                tags.insert(.kids)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["music", "karaoke", "concert", "mtv", "vh1", "vevo"],
+                phrases: ["music channel", "live music"]
+            ) {
+                tags.insert(.music)
+            }
+
+            if matchesAny(
+                normalizedValue,
+                tokenSet: tokenSet,
+                keywords: ["general", "entertainment", "variety"],
+                phrases: ["general entertainment", "entertainment channel"]
+            ) {
+                tags.insert(.general)
+            }
+        }
+
+        return tags
+    }
+
+    private static func matchesArabic(_ normalizedValue: String, tokenSet: Set<String>) -> Bool {
+        if tokenSet.contains("arab") || tokenSet.contains("arabic") || normalizedValue.contains("العربية") {
+            return true
+        }
+
+        return false
+    }
+
+    private static func matchesAny(
+        _ normalizedValue: String,
+        tokenSet: Set<String>,
+        keywords: Set<String>,
+        phrases: [String]
+    ) -> Bool {
+        if tokenSet.isDisjoint(with: keywords) == false {
+            return true
+        }
+
+        return phrases.contains(where: normalizedValue.contains(_:))
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func tokens(in value: String) -> [String] {
+        value.split { character in
+            !character.isLetter && !character.isNumber
+        }
+        .map(String.init)
     }
 }
 
@@ -342,5 +470,22 @@ extension String {
     var dragonTrimmedOrNil: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension Array where Element == String {
+    func dragonOrderedUnique() -> [String] {
+        var seen: Set<String> = []
+        var ordered: [String] = []
+
+        for value in self {
+            guard seen.insert(value).inserted else {
+                continue
+            }
+
+            ordered.append(value)
+        }
+
+        return ordered
     }
 }

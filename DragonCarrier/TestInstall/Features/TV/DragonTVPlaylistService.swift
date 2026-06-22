@@ -262,6 +262,9 @@ struct IPTVPlaylistService: Sendable {
                 ?? "Unnamed Channel"
             let name = pendingMetadata?.name.dragonTrimmedOrNil ?? fallbackName
             let normalizedTvgID = pendingMetadata?.tvgId?.dragonTrimmedOrNil
+            let metadataLabels = Array(
+                NSOrderedSet(array: [pendingMetadata?.group, pendingMetadata?.category].compactMap { $0?.dragonTrimmedOrNil })
+            ) as? [String] ?? []
             let dedupeID = Self.dedupeKey(
                 name: name,
                 url: streamURL,
@@ -275,6 +278,8 @@ struct IPTVPlaylistService: Sendable {
                     url: streamURL,
                     tvgId: normalizedTvgID,
                     group: pendingMetadata?.group?.dragonTrimmedOrNil,
+                    category: pendingMetadata?.category?.dragonTrimmedOrNil,
+                    metadataLabels: metadataLabels.isEmpty ? nil : metadataLabels,
                     logo: pendingMetadata?.logoURL,
                     httpUserAgent: pendingMetadata?.httpUserAgent?.dragonTrimmedOrNil,
                     sourceURLs: [source.url],
@@ -308,6 +313,7 @@ struct IPTVPlaylistService: Sendable {
             name: nameSegment.trimmingCharacters(in: .whitespacesAndNewlines),
             tvgId: attributes["tvg-id"],
             group: attributes["group-title"],
+            category: attributes["category"],
             logoURL: logoURL,
             httpUserAgent: attributes["http-user-agent"]
         )
@@ -497,6 +503,8 @@ struct IPTVPlaylistService: Sendable {
             url: source.url,
             tvgId: source.id,
             group: "Direct Source",
+            category: nil,
+            metadataLabels: ["Direct Source"],
             logo: nil,
             httpUserAgent: nil,
             sourceURLs: [source.url],
@@ -711,6 +719,7 @@ private struct ParsedChannelMetadata: Sendable {
     let name: String
     let tvgId: String?
     let group: String?
+    let category: String?
     let logoURL: URL?
     let httpUserAgent: String?
 }
