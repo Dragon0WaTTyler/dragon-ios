@@ -8,6 +8,7 @@ final class ArticlesViewModel: ObservableObject {
         case loading
         case loaded
         case empty
+        case noSourcesConfigured
         case failed(String)
     }
 
@@ -68,7 +69,7 @@ final class ArticlesViewModel: ObservableObject {
             let result = try await dataSource.refreshArticles(limit: limit)
             let response = result.response
             guard response.ok else {
-                handleFailure("Article refresh returned an invalid response.")
+                handleFailure(message: "Article refresh returned an invalid response.")
                 return
             }
 
@@ -82,18 +83,33 @@ final class ArticlesViewModel: ObservableObject {
                 : (response.items.isEmpty ? .empty : .failedUsingCache)
             state = response.items.isEmpty ? .empty : .loaded
         } catch {
-            handleFailure(error.localizedDescription)
+            handleFailure(error: error)
         }
     }
 
-    private func handleFailure(_ message: String) {
+    private func handleFailure(error: Error) {
+        let isNoSourcesConfigured: Bool
+        if let sourceError = error as? DragonRSSArticleSourceError,
+           case .emptyRegistry = sourceError {
+            isNoSourcesConfigured = true
+        } else {
+            isNoSourcesConfigured = false
+        }
+
+        handleFailure(
+            message: error.localizedDescription,
+            isNoSourcesConfigured: isNoSourcesConfigured
+        )
+    }
+
+    private func handleFailure(message: String, isNoSourcesConfigured: Bool = false) {
         refreshErrorText = message
 
         guard let response else {
             statusText = nil
             sourceLabel = "Empty"
-            refreshPhase = .idle
-            state = .failed(message)
+            refreshPhase = isNoSourcesConfigured ? .empty : .idle
+            state = isNoSourcesConfigured ? .noSourcesConfigured : .failed(message)
             return
         }
 
@@ -101,7 +117,7 @@ final class ArticlesViewModel: ObservableObject {
             sourceLabel = "Empty"
             statusText = nil
             refreshPhase = .empty
-            state = .empty
+            state = isNoSourcesConfigured ? .noSourcesConfigured : .empty
             return
         }
 

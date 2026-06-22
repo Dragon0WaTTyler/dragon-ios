@@ -118,6 +118,15 @@ struct DragonArticlesView: View {
                 await viewModel.loadArticles()
             }
 
+        case .noSourcesConfigured:
+            ArticleStateCard(
+                title: "No RSS sources configured.",
+                message: "Add sources in Settings → Articles.",
+                buttonTitle: "Reload"
+            ) {
+                await viewModel.loadArticles()
+            }
+
         case .empty:
             ArticleStateCard(
                 title: "No articles in the last 24 hours",

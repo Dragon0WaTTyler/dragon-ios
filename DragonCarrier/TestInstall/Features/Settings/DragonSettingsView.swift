@@ -16,6 +16,12 @@ struct DragonSettingsView: View {
     @State private var notionConnectionState: DragonNotionConnectionState = .notTested
     @State private var notionLastCheckedAt: Date?
     @State private var isCheckingNotion = false
+    @State private var articleSources: [DragonRSSSourceDescriptor] = DragonArticlesSourceStore().loadSources()
+    @State private var articleSourceURLDraft = ""
+    @State private var articleSourceNameDraft = ""
+    @State private var editingArticleSourceID: String?
+    @State private var articleSourceErrorText: String?
+    @State private var articleSourceStatusText: String?
     @State private var articleCacheCount: Int = 0
     @State private var movieCacheCount: Int = 0
     @State private var totalCacheCount: Int = 0
@@ -26,6 +32,7 @@ struct DragonSettingsView: View {
 
     private let settingsStore = DragonBackendSettingsStore()
     private let notionSettingsStore = DragonNotionSettingsStore()
+    private let articlesSourceStore = DragonArticlesSourceStore()
     private let notionMoviesDataSource = DragonNotionMoviesDataSource()
     private let responseCache = DragonResponseCache.shared
 
@@ -211,27 +218,17 @@ struct DragonSettingsView: View {
             subtitle: "RSS source organization, cache state, and refresh controls for native Articles."
         ) {
             DragonSettingsSectionCard(
-                title: "RSS Source URL",
-                subtitle: "This area is prepared for manual RSS source entry when that workflow is implemented."
+                title: editingArticleSourceID == nil ? "Add RSS Source" : "Edit RSS Source",
+                subtitle: "Manage native RSS sources stored on this device for the Articles tab."
             ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    DragonSettingsDisabledField(placeholder: "Source URL entry coming later")
-
-                    Text("Articles currently reads from the built-in RSS registry, so no editable RSS URL setting exists yet.")
-                        .font(.caption)
-                        .foregroundStyle(.gray)
-                }
+                articleSourceEditorContent
             }
 
             DragonSettingsSectionCard(
                 title: "Source List",
-                subtitle: "Current native RSS registry used by Articles."
+                subtitle: "Active RSS sources are fetched by the native iOS Articles loader."
             ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(DragonArticlesFeedRegistry.v1Feeds) { source in
-                        DragonSettingsSourceRow(source: source)
-                    }
-                }
+                articleSourceListContent
             }
 
             DragonSettingsSectionCard(
@@ -498,6 +495,101 @@ struct DragonSettingsView: View {
         }
     }
 
+    private var articleSourceEditorContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Source Name (Optional)")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                DragonSettingsEditableField(
+                    placeholder: "Example: BBC World",
+                    text: $articleSourceNameDraft
+                )
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("RSS Feed URL")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                DragonSettingsEditableField(
+                    placeholder: "https://example.com/feed.xml",
+                    text: $articleSourceURLDraft
+                )
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            }
+
+            Text("Only http:// and https:// RSS feed URLs are accepted. Source names are optional and default to the feed host.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            if let articleSourceErrorText, !articleSourceErrorText.isEmpty {
+                Text(articleSourceErrorText)
+                    .font(.caption)
+                    .foregroundStyle(DragonTheme.red)
+            }
+
+            if let articleSourceStatusText, !articleSourceStatusText.isEmpty {
+                Text(articleSourceStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            HStack(spacing: 12) {
+                Button(articleSourcePrimaryActionTitle) {
+                    saveArticleSource()
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+
+                Button(editingArticleSourceID == nil ? "Clear" : "Cancel Edit") {
+                    resetArticleSourceEditor()
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+            }
+        }
+    }
+
+    private var articleSourceListContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if articleSources.isEmpty {
+                Text("No RSS sources saved yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+
+                Text("Add at least one RSS feed above to let Articles refresh natively on-device.")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            } else {
+                ForEach(articleSources) { source in
+                    DragonSettingsSourceRow(
+                        source: source,
+                        isActive: Binding(
+                            get: { source.active },
+                            set: { newValue in
+                                updateArticleSource(source, isActive: newValue)
+                            }
+                        ),
+                        onEdit: {
+                            beginEditingArticleSource(source)
+                        },
+                        onDelete: {
+                            deleteArticleSource(source)
+                        }
+                    )
+                }
+            }
+
+            Text("Only active sources are loaded by Articles. Deleting a source removes it from future native refreshes but keeps any existing cached articles until cache is cleared.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+        }
+    }
+
     private var articlesSettingsContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -641,6 +733,7 @@ struct DragonSettingsView: View {
     private func loadInitialState() async {
         backendURLDraft = settingsStore.backendURL
         notionSourceIDDraft = notionSettingsStore.moviesSourceIdentifier
+        articleSources = articlesSourceStore.loadSources()
         await refreshCacheInfo()
     }
 
@@ -684,6 +777,82 @@ struct DragonSettingsView: View {
             notionLastCheckedAt = nil
         } catch {
             notionConnectionState = .failed(error.localizedDescription)
+        }
+    }
+
+    private func saveArticleSource() {
+        articleSourceErrorText = nil
+        articleSourceStatusText = nil
+
+        let existingSource = editingArticleSourceID.flatMap { sourceID in
+            articleSources.first(where: { $0.id == sourceID })
+        }
+
+        do {
+            let source = try articlesSourceStore.makeSource(
+                id: existingSource?.id ?? "rss-\(UUID().uuidString.lowercased())",
+                name: articleSourceNameDraft,
+                feedURL: articleSourceURLDraft,
+                active: existingSource?.active ?? true,
+                language: existingSource?.language,
+                category: existingSource?.category,
+                excludingSourceID: existingSource?.id
+            )
+            try articlesSourceStore.save(source)
+
+            articleSources = articlesSourceStore.loadSources()
+            articleSourceStatusText = existingSource == nil ? "RSS source added." : "RSS source saved."
+            resetArticleSourceEditor(keepStatus: true)
+        } catch {
+            articleSourceErrorText = error.localizedDescription
+        }
+    }
+
+    private func beginEditingArticleSource(_ source: DragonRSSSourceDescriptor) {
+        editingArticleSourceID = source.id
+        articleSourceNameDraft = source.name
+        articleSourceURLDraft = source.feedURL
+        articleSourceErrorText = nil
+        articleSourceStatusText = nil
+    }
+
+    private func updateArticleSource(_ source: DragonRSSSourceDescriptor, isActive: Bool) {
+        articleSourceErrorText = nil
+        articleSourceStatusText = nil
+
+        do {
+            try articlesSourceStore.save(source.updating(active: isActive))
+            articleSources = articlesSourceStore.loadSources()
+            articleSourceStatusText = isActive ? "RSS source activated." : "RSS source deactivated."
+        } catch {
+            articleSourceErrorText = "Could not update RSS source."
+        }
+    }
+
+    private func deleteArticleSource(_ source: DragonRSSSourceDescriptor) {
+        articleSourceErrorText = nil
+        articleSourceStatusText = nil
+
+        do {
+            try articlesSourceStore.deleteSource(id: source.id)
+            articleSources = articlesSourceStore.loadSources()
+            if editingArticleSourceID == source.id {
+                resetArticleSourceEditor(keepStatus: true)
+            }
+            articleSourceStatusText = "RSS source removed."
+        } catch {
+            articleSourceErrorText = "Could not remove RSS source."
+        }
+    }
+
+    private func resetArticleSourceEditor(keepStatus: Bool = false) {
+        editingArticleSourceID = nil
+        articleSourceNameDraft = ""
+        articleSourceURLDraft = ""
+        articleSourceErrorText = nil
+
+        if !keepStatus {
+            articleSourceStatusText = nil
         }
     }
 
@@ -802,8 +971,12 @@ struct DragonSettingsView: View {
         totalCacheCount > 0 ? DragonTheme.red : .gray
     }
 
+    private var articleSourcePrimaryActionTitle: String {
+        editingArticleSourceID == nil ? "Add Source" : "Save Source"
+    }
+
     private var activeArticleFeedCount: Int {
-        DragonArticlesFeedRegistry.v1Feeds.filter(\.active).count
+        articleSources.filter(\.active).count
     }
 
     private var statusLabel: String {
@@ -1223,24 +1396,37 @@ private struct DragonSettingsKeyValueRow: View {
 
 private struct DragonSettingsSourceRow: View {
     let source: DragonRSSSourceDescriptor
+    @Binding var isActive: Bool
+    let onEdit: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(source.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .center, spacing: 10) {
+                        Text(source.normalizedName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
 
-                DragonSettingsStatusBadge(
-                    text: source.active ? "Active" : "Inactive",
-                    color: source.active ? .green : .gray
-                )
+                        DragonSettingsStatusBadge(
+                            text: isActive ? "Active" : "Inactive",
+                            color: isActive ? .green : .gray
+                        )
+                    }
+
+                    Text(source.normalizedFeedURL)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.gray)
+                        .textSelection(.enabled)
+                }
+
+                Spacer(minLength: 12)
+
+                Toggle("", isOn: $isActive)
+                    .labelsHidden()
+                    .tint(DragonTheme.red)
             }
-
-            Text(source.feedURL)
-                .font(.caption.monospaced())
-                .foregroundStyle(.gray)
-                .textSelection(.enabled)
 
             HStack(spacing: 10) {
                 if let language = source.language, !language.isEmpty {
@@ -1254,12 +1440,36 @@ private struct DragonSettingsSourceRow: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.gray)
                 }
+
+                Spacer()
+
+                Button("Edit", action: onEdit)
+                    .buttonStyle(DragonMiniOutlineButtonStyle())
+
+                Button("Delete", role: .destructive, action: onDelete)
+                    .buttonStyle(DragonMiniOutlineButtonStyle())
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.black.opacity(0.28))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct DragonMiniOutlineButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.18))
+            .foregroundStyle(.white)
+            .overlay(
+                Capsule()
+                    .stroke(DragonTheme.red.opacity(configuration.isPressed ? 0.6 : 1), lineWidth: 1)
+            )
+            .clipShape(Capsule())
     }
 }
 

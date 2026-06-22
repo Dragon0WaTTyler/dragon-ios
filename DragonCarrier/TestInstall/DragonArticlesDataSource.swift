@@ -12,7 +12,6 @@ enum DragonArticlesRefreshPhase: Equatable {
 enum DragonArticlesRefreshSource {
     case nativeRSS
     case cachedArticles
-    case legacyRemote
 
     var displayLabel: String {
         switch self {
@@ -20,8 +19,6 @@ enum DragonArticlesRefreshSource {
             return "Native RSS"
         case .cachedArticles:
             return "Articles cache"
-        case .legacyRemote:
-            return "Legacy remote"
         }
     }
 
@@ -31,8 +28,6 @@ enum DragonArticlesRefreshSource {
             return nil
         case .cachedArticles:
             return "Failed to refresh RSS. Showing saved articles."
-        case .legacyRemote:
-            return "Native RSS refresh failed. Showing legacy remote articles."
         }
     }
 }
@@ -55,30 +50,31 @@ protocol DragonArticlesDataSource {
     func refreshArticles(limit: Int) async throws -> DragonArticlesRefreshResult
 }
 
-final class LegacyArticlesRemoteDataSource: DragonArticlesFetching {
-    private let remote: DragonArticlesFetching
-
-    init(remote: DragonArticlesFetching = DragonRemoteDataSource.shared) {
-        self.remote = remote
-    }
-
-    func fetchArticles(limit: Int) async throws -> DragonAPIFetchResult<DragonArticlesResponse> {
-        try await remote.fetchArticles(limit: limit)
-    }
-
-    func fetchArticleDetail(id: String) async throws -> DragonAPIFetchResult<DragonArticle> {
-        try await remote.fetchArticleDetail(id: id)
-    }
-}
-
 final class NativeRSSArticlesDataSource {
-    private let rssSource: DragonRSSArticleSource
+    private let session: URLSession
+    private let parser: DragonRSSParser
+    private let sourceStore: DragonArticlesSourceStore
+    private let nowProvider: () -> Date
 
-    init(rssSource: DragonRSSArticleSource = DragonRSSArticleSource()) {
-        self.rssSource = rssSource
+    init(
+        session: URLSession = .shared,
+        parser: DragonRSSParser = DragonRSSParser(),
+        sourceStore: DragonArticlesSourceStore = DragonArticlesSourceStore(),
+        nowProvider: @escaping () -> Date = Date.init
+    ) {
+        self.session = session
+        self.parser = parser
+        self.sourceStore = sourceStore
+        self.nowProvider = nowProvider
     }
 
     func fetchArticles() async throws -> DragonNativeArticlesFetchResult {
+        let rssSource = DragonRSSArticleSource(
+            session: session,
+            feeds: sourceStore.loadSources(),
+            parser: parser,
+            nowProvider: nowProvider
+        )
         let result = try await rssSource.fetchArticles()
 
 #if DEBUG
@@ -106,18 +102,15 @@ final class NativeRSSArticlesDataSource {
 final class CachedArticlesDataSource: DragonArticlesDataSource {
     private let native: NativeRSSArticlesDataSource
     private let snapshotStore: DragonSnapshotStore
-    private let legacyFallback: DragonArticlesFetching?
     private let nowProvider: () -> Date
 
     init(
         native: NativeRSSArticlesDataSource = NativeRSSArticlesDataSource(),
         snapshotStore: DragonSnapshotStore = .shared,
-        legacyFallback: DragonArticlesFetching? = nil,
         nowProvider: @escaping () -> Date = Date.init
     ) {
         self.native = native
         self.snapshotStore = snapshotStore
-        self.legacyFallback = legacyFallback
         self.nowProvider = nowProvider
     }
 
@@ -139,51 +132,20 @@ final class CachedArticlesDataSource: DragonArticlesDataSource {
     }
 
     func refreshArticles(limit: Int) async throws -> DragonArticlesRefreshResult {
-        do {
-            let result = try await native.fetchArticles()
-            let envelope = DragonCachedArticlesEnvelope(
-                response: result.response,
-                sourceStatuses: result.sourceStatuses,
-                diagnostics: result.diagnostics
-            )
-            await snapshotStore.save(envelope, for: .nativeArticlesFeed)
+        let result = try await native.fetchArticles()
+        let envelope = DragonCachedArticlesEnvelope(
+            response: result.response,
+            sourceStatuses: result.sourceStatuses,
+            diagnostics: result.diagnostics
+        )
+        await snapshotStore.save(envelope, for: .nativeArticlesFeed)
 
-            return DragonArticlesRefreshResult(
-                response: result.response.filteredToRecentArticles(referenceDate: nowProvider()),
-                refreshedAt: Date(),
-                source: .nativeRSS,
-                warningMessage: nil
-            )
-        } catch {
-            guard let legacyFallback else {
-                throw error
-            }
-
-            let fallbackResult = try await legacyFallback.fetchArticles(limit: limit)
-            let filteredResponse = fallbackResult.value.filteredToRecentArticles(referenceDate: nowProvider())
-            let diagnostics = DragonNativeArticlesDiagnostics(
-                totalFeedsFetched: 0,
-                totalItemsParsed: fallbackResult.value.items.count,
-                totalValidDatedItems: fallbackResult.value.items.filter { $0.publishedDate != nil }.count,
-                totalItemsInside24Hours: filteredResponse.items.count,
-                oldestDisplayedArticleAgeHours: filteredResponse.items.last?.publishedDate.map {
-                    nowProvider().timeIntervalSince($0) / 3_600
-                }
-            )
-            let envelope = DragonCachedArticlesEnvelope(
-                response: fallbackResult.value,
-                sourceStatuses: [],
-                diagnostics: diagnostics
-            )
-            await snapshotStore.save(envelope, for: .nativeArticlesFeed)
-
-            return DragonArticlesRefreshResult(
-                response: filteredResponse,
-                refreshedAt: Date(),
-                source: .legacyRemote,
-                warningMessage: DragonArticlesRefreshSource.legacyRemote.refreshWarning
-            )
-        }
+        return DragonArticlesRefreshResult(
+            response: result.response.filteredToRecentArticles(referenceDate: nowProvider()),
+            refreshedAt: Date(),
+            source: .nativeRSS,
+            warningMessage: nil
+        )
     }
 }
 
@@ -193,13 +155,11 @@ final class DragonDefaultArticlesDataSource: DragonArticlesDataSource {
     init(
         native: NativeRSSArticlesDataSource = NativeRSSArticlesDataSource(),
         snapshotStore: DragonSnapshotStore = .shared,
-        legacyFallback: DragonArticlesFetching? = nil,
         nowProvider: @escaping () -> Date = Date.init
     ) {
         self.cachedDataSource = CachedArticlesDataSource(
             native: native,
             snapshotStore: snapshotStore,
-            legacyFallback: legacyFallback,
             nowProvider: nowProvider
         )
     }

@@ -8,8 +8,35 @@ struct DragonRSSSourceDescriptor: Codable, Identifiable, Sendable {
     let category: String?
     let active: Bool
 
+    var normalizedName: String {
+        name.dragonTrimmedOrNil ?? fallbackName
+    }
+
+    var normalizedFeedURL: String {
+        feedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var url: URL? {
-        URL(string: feedURL)
+        URL(string: normalizedFeedURL)
+    }
+
+    func updating(
+        name: String? = nil,
+        feedURL: String? = nil,
+        active: Bool? = nil
+    ) -> DragonRSSSourceDescriptor {
+        DragonRSSSourceDescriptor(
+            id: id,
+            name: name ?? self.name,
+            feedURL: feedURL ?? self.feedURL,
+            language: language,
+            category: category,
+            active: active ?? self.active
+        )
+    }
+
+    private var fallbackName: String {
+        url?.host?.dragonTrimmedOrNil ?? "RSS Source"
     }
 }
 
@@ -76,7 +103,7 @@ enum DragonRSSArticleSourceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptyRegistry:
-            return "No RSS feeds are configured."
+            return "No RSS sources configured. Add sources in Settings → Articles."
         case .noArticlesAvailable(let failures):
             if failures.isEmpty {
                 return "No articles were available from the configured RSS feeds."
