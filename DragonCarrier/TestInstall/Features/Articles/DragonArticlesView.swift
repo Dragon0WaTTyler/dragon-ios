@@ -195,6 +195,18 @@ struct ArticleRow: View {
         DragonTextDirection.forText([article.displayTitle, article.displaySource, article.displayExcerpt].joined(separator: " "))
     }
 
+    private var titleDirection: DragonTextDirection {
+        DragonTextDirection.forText(article.displayTitle)
+    }
+
+    private var sourceDirection: DragonTextDirection {
+        DragonTextDirection.forText(article.displaySource)
+    }
+
+    private var excerptDirection: DragonTextDirection {
+        DragonTextDirection.forText(article.displayExcerpt)
+    }
+
     private var indicatorLabels: [String] {
         [article.readIndicatorLabel, article.savedIndicatorLabel].compactMap { $0 }
     }
@@ -204,22 +216,23 @@ struct ArticleRow: View {
             ArticleThumbnailView(url: article.resolvedImageURL)
 
             VStack(alignment: rowDirection.horizontalAlignment, spacing: 10) {
-                Text(article.displayTitle)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: rowDirection.frameAlignment)
-                    .environment(\.layoutDirection, DragonTextDirection.forText(article.displayTitle).layoutDirection)
-                    .multilineTextAlignment(DragonTextDirection.forText(article.displayTitle).alignment)
+                rowAlignedContent(for: titleDirection) {
+                    Text(article.displayTitle)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
 
                 HStack(spacing: 8) {
                     if !article.displaySource.isEmpty {
-                        Text(article.displaySource)
-                            .font(.caption)
-                            .foregroundStyle(DragonTheme.red)
-                            .lineLimit(1)
-                            .environment(\.layoutDirection, DragonTextDirection.forText(article.displaySource).layoutDirection)
-                            .multilineTextAlignment(DragonTextDirection.forText(article.displaySource).alignment)
+                        rowAlignedContent(for: sourceDirection) {
+                            Text(article.displaySource)
+                                .font(.caption)
+                                .foregroundStyle(DragonTheme.red)
+                                .lineLimit(1)
+                                .multilineTextAlignment(.leading)
+                        }
                     }
 
                     if let publishedDateText = article.publishedRelativeDisplayText {
@@ -229,32 +242,45 @@ struct ArticleRow: View {
                             .lineLimit(1)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: rowDirection.frameAlignment)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .environment(\.layoutDirection, rowDirection.layoutDirection)
 
                 if !article.displayExcerpt.isEmpty {
-                    Text(article.displayExcerpt)
-                        .font(.subheadline)
-                        .foregroundStyle(.gray)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: rowDirection.frameAlignment)
-                        .environment(\.layoutDirection, DragonTextDirection.forText(article.displayExcerpt).layoutDirection)
-                        .multilineTextAlignment(DragonTextDirection.forText(article.displayExcerpt).alignment)
+                    rowAlignedContent(for: excerptDirection) {
+                        Text(article.displayExcerpt)
+                            .font(.subheadline)
+                            .foregroundStyle(.gray)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
 
                 if !indicatorLabels.isEmpty {
                     ArticleIndicatorRow(labels: indicatorLabels, accentColor: DragonTheme.red)
-                        .frame(maxWidth: .infinity, alignment: rowDirection.frameAlignment)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.layoutDirection, rowDirection.layoutDirection)
         .background(DragonTheme.card)
         .overlay(
             RoundedRectangle(cornerRadius: 18)
                 .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder
+    private func rowAlignedContent<Content: View>(
+        for direction: DragonTextDirection,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.layoutDirection, direction.layoutDirection)
     }
 }
 
@@ -352,7 +378,7 @@ struct ArticleDetailView: View {
     }
 
     private var bodyDirection: DragonTextDirection {
-        readerDirectionMode.resolvedDirection(for: detailTextProbe)
+        readerDirectionMode.resolvedBodyDirection(for: viewModel.displayBodyText)
     }
 
     private var titleDirection: DragonTextDirection {
@@ -410,6 +436,7 @@ struct ArticleDetailView: View {
                     loadFullArticleButton
                     openOriginalButton
                 }
+                .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
                 .padding(24)
                 .padding(.bottom, 90)
                 .environment(\.layoutDirection, detailDirection.layoutDirection)
@@ -424,25 +451,26 @@ struct ArticleDetailView: View {
 
     private var articleHeaderView: some View {
         VStack(alignment: detailDirection.horizontalAlignment, spacing: 10) {
-            Text(viewModel.title)
-                .font(.system(size: 32, weight: .bold))
-                .foregroundStyle(readerPalette.primaryText)
-                .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
-                .environment(\.layoutDirection, titleDirection.layoutDirection)
-                .multilineTextAlignment(titleDirection.alignment)
+            alignedDetailContent(for: titleDirection) {
+                Text(viewModel.title)
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(readerPalette.primaryText)
+                    .multilineTextAlignment(.leading)
+            }
 
             if !viewModel.source.isEmpty {
-                Text(viewModel.source)
-                    .font(.headline)
-                    .foregroundStyle(DragonTheme.red)
-                    .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
-                    .environment(\.layoutDirection, sourceDirection.layoutDirection)
-                    .multilineTextAlignment(sourceDirection.alignment)
+                alignedDetailContent(for: sourceDirection) {
+                    Text(viewModel.source)
+                        .font(.headline)
+                        .foregroundStyle(DragonTheme.red)
+                        .multilineTextAlignment(.leading)
+                }
             }
 
             if !viewModel.stateLabels.isEmpty {
-                ArticleIndicatorRow(labels: viewModel.stateLabels, accentColor: DragonTheme.red)
-                    .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
+                alignedDetailContent(for: detailDirection) {
+                    ArticleIndicatorRow(labels: viewModel.stateLabels, accentColor: DragonTheme.red)
+                }
             }
         }
     }
@@ -450,27 +478,35 @@ struct ArticleDetailView: View {
     private var articleDatesView: some View {
         VStack(alignment: detailDirection.horizontalAlignment, spacing: 8) {
             if let publishedDateText = viewModel.article.publishedDisplayText {
-                Text("Published")
-                    .font(.caption)
-                    .foregroundStyle(readerPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
+                alignedDetailContent(for: detailDirection) {
+                    Text("Published")
+                        .font(.caption)
+                        .foregroundStyle(readerPalette.secondaryText)
+                        .multilineTextAlignment(.leading)
+                }
 
-                Text(publishedDateText)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(readerPalette.primaryText)
-                    .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
+                alignedDetailContent(for: detailDirection) {
+                    Text(publishedDateText)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(readerPalette.primaryText)
+                        .multilineTextAlignment(.leading)
+                }
             }
 
             if !viewModel.savedAt.isEmpty {
-                Text("Saved")
-                    .font(.caption)
-                    .foregroundStyle(readerPalette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
+                alignedDetailContent(for: detailDirection) {
+                    Text("Saved")
+                        .font(.caption)
+                        .foregroundStyle(readerPalette.secondaryText)
+                        .multilineTextAlignment(.leading)
+                }
 
-                Text(viewModel.savedAt)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(readerPalette.primaryText)
-                    .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
+                alignedDetailContent(for: detailDirection) {
+                    Text(viewModel.savedAt)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(readerPalette.primaryText)
+                        .multilineTextAlignment(.leading)
+                }
             }
         }
         .padding(16)
@@ -502,12 +538,12 @@ struct ArticleDetailView: View {
     @ViewBuilder
     private var articleNoticeView: some View {
         if let detailNoticeText {
-            Text(detailNoticeText)
-                .font(.footnote)
-                .foregroundStyle(readerPalette.secondaryText)
-                .frame(maxWidth: .infinity, alignment: detailDirection.frameAlignment)
-                .environment(\.layoutDirection, detailDirection.layoutDirection)
-                .multilineTextAlignment(detailDirection.alignment)
+            alignedDetailContent(for: detailDirection) {
+                Text(detailNoticeText)
+                    .font(.footnote)
+                    .foregroundStyle(readerPalette.secondaryText)
+                    .multilineTextAlignment(.leading)
+            }
         }
     }
 
@@ -580,6 +616,16 @@ struct ArticleDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .disabled(articleURL == nil)
+    }
+
+    @ViewBuilder
+    private func alignedDetailContent<Content: View>(
+        for direction: DragonTextDirection,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.layoutDirection, direction.layoutDirection)
     }
 }
 
@@ -682,22 +728,21 @@ private struct ArticleTextCard: View {
 
     var body: some View {
         VStack(alignment: direction.horizontalAlignment, spacing: 10) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(palette.secondaryText)
-                .frame(maxWidth: .infinity, alignment: direction.frameAlignment)
-                .environment(\.layoutDirection, direction.layoutDirection)
-                .multilineTextAlignment(direction.alignment)
+            alignedTextBlock {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(palette.secondaryText)
+                    .multilineTextAlignment(.leading)
+            }
 
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                alignedTextBlock {
                     Text(paragraph)
                         .font(.system(size: fontSize))
                         .foregroundStyle(palette.primaryText)
                         .lineSpacing(max(fontSize * 0.2, 4))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: direction.frameAlignment)
-                        .environment(\.layoutDirection, direction.layoutDirection)
-                        .multilineTextAlignment(direction.alignment)
+                        .multilineTextAlignment(.leading)
+                }
             }
         }
         .padding(16)
@@ -710,6 +755,15 @@ private struct ArticleTextCard: View {
                 .stroke(palette.borderColor, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder
+    private func alignedTextBlock<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.layoutDirection, direction.layoutDirection)
     }
 }
 
@@ -1189,6 +1243,7 @@ private enum DragonTextDirection {
             return .trailing
         }
     }
+
 }
 
 private extension UnicodeScalar {
