@@ -54,11 +54,10 @@ struct DragonTVView: View {
         .task {
             await viewModel.loadCachedThenRefreshIfNeeded()
         }
-        .sheet(item: $selectedChannel) { channel in
-            DragonTVPlayerView(channel: channel)
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.black)
-        }
+        .background(
+            DragonTVFullscreenPlayerPresenter(selectedChannel: $selectedChannel)
+                .allowsHitTesting(false)
+        )
     }
 
     @ViewBuilder
@@ -469,53 +468,5 @@ private struct DragonTVStateCard<Accessory: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DragonTheme.card)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-}
-
-private struct DragonTVPlayerView: View {
-    let channel: IPTVChannel
-    private let player: AVPlayer
-
-    init(channel: IPTVChannel) {
-        self.channel = channel
-        self.player = AVPlayer(url: channel.url)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                VideoPlayer(player: player)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(channel.name)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-
-                    if let group = channel.group, !group.isEmpty {
-                        Text(group)
-                            .font(.subheadline)
-                            .foregroundStyle(.gray)
-                    }
-
-                    Text(channel.url.absoluteString)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.gray)
-                        .textSelection(.enabled)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(20)
-            .background(DragonTheme.background.ignoresSafeArea())
-            .navigationTitle("Now Playing")
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                player.play()
-            }
-            .onDisappear {
-                player.pause()
-                player.replaceCurrentItem(with: nil)
-            }
-        }
     }
 }
