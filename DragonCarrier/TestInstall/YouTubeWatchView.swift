@@ -66,38 +66,41 @@ struct YouTubeWatchView: View {
             DragonTheme.background.ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 0) {
                     playbackHeader
 
-                    YouTubeRecommendationSection(
-                        title: "More From This List",
-                        emptyMessage: "No nearby videos are available in the current list.",
-                        videos: nearbyPlaylistVideos,
-                        selectedVideoID: currentVideo.id
-                    ) { video in
-                        currentVideo = video
-                    }
+                    VStack(alignment: .leading, spacing: 18) {
+                        YouTubeRecommendationSection(
+                            title: "More From This List",
+                            emptyMessage: "No nearby videos are available in the current list.",
+                            videos: nearbyPlaylistVideos,
+                            selectedVideoID: currentVideo.id
+                        ) { video in
+                            currentVideo = video
+                        }
 
-                    YouTubeRecommendationSection(
-                        title: "Same Section or Group",
-                        emptyMessage: "No matching section or group videos are available in the current list.",
-                        videos: sameSectionOrGroup,
-                        selectedVideoID: currentVideo.id
-                    ) { video in
-                        currentVideo = video
-                    }
+                        YouTubeRecommendationSection(
+                            title: "Same Section or Group",
+                            emptyMessage: "No matching section or group videos are available in the current list.",
+                            videos: sameSectionOrGroup,
+                            selectedVideoID: currentVideo.id
+                        ) { video in
+                            currentVideo = video
+                        }
 
-                    YouTubeRecommendationSection(
-                        title: "More From This Channel",
-                        emptyMessage: "No other videos from this channel are available in the current data.",
-                        videos: sameChannel,
-                        selectedVideoID: currentVideo.id
-                    ) { video in
-                        currentVideo = video
+                        YouTubeRecommendationSection(
+                            title: "More From This Channel",
+                            emptyMessage: "No other videos from this channel are available in the current data.",
+                            videos: sameChannel,
+                            selectedVideoID: currentVideo.id
+                        ) { video in
+                            currentVideo = video
+                        }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 18)
+                    .padding(.bottom, 90)
                 }
-                .padding(24)
-                .padding(.bottom, 90)
             }
         }
         .navigationTitle("Watch")
@@ -111,17 +114,18 @@ struct YouTubeWatchView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(currentVideo.title.isEmpty ? "Untitled video" : currentVideo.title)
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
-                    .lineLimit(nil)
+                    .lineLimit(3)
 
                 if !currentVideo.channel.isEmpty {
                     Text(currentVideo.channel)
-                        .font(.headline)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(DragonTheme.red)
+                        .lineLimit(2)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
                     if let publishedDateText = currentVideo.publishedDisplayText {
                         MetadataLine(label: "Published", value: publishedDateText)
                     }
@@ -141,12 +145,12 @@ struct YouTubeWatchView: View {
                         DragonYouTubePlaybackHelper.open(videoID: videoID)
                     } label: {
                         Label("Open in YouTube", systemImage: "arrow.up.right.square")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.footnote.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                            .padding(.vertical, 10)
                             .background(DragonTheme.red)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
                 }
@@ -158,17 +162,13 @@ struct YouTubeWatchView: View {
                         Text("The in-app player is visible by default, but this item does not expose a usable YouTube ID yet.")
                     }
                 }
-                .font(.footnote)
-                .foregroundStyle(.gray)
+                .font(.caption)
+                .foregroundStyle(.gray.opacity(0.9))
             }
-            .padding(16)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(DragonTheme.card)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.bottom, 6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -187,14 +187,14 @@ struct MetadataLine: View {
     let value: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
-                .font(.caption.weight(.semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(.gray)
 
             Text(value)
-                .font(.footnote)
-                .foregroundStyle(.white)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.92))
         }
     }
 }
