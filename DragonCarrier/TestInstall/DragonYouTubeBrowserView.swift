@@ -278,7 +278,7 @@ struct DragonYouTubeBrowserView: View {
 
         let favoritesChip = FilterChip(
             key: preferredPocketTubeFavoritesSectionKey(),
-            label: favoritePocketTubeSectionLabel
+            label: "Favorites"
         )
 
         return [FilterChip(key: nil, label: "All"), favoritesChip] + pocketTubeSections.map {
@@ -292,11 +292,6 @@ struct DragonYouTubeBrowserView: View {
 
     private var favoritePocketTubeSection: DragonYouTubeSection? {
         sections.first(where: sectionRepresentsFavorites)
-    }
-
-    private var favoritePocketTubeSectionLabel: String {
-        let label = favoritePocketTubeSection?.label.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return label.isEmpty ? "Favorites" : label
     }
 
     private var isFavoritesSelected: Bool {
@@ -826,7 +821,7 @@ struct DragonYouTubeBrowserView: View {
     }
 
     private var favoriteSectionKeyAliases: Set<String> {
-        ["favorite", "favorites", "favourite", "favourites"]
+        ["favorite", "favorites", "my favorite", "my favorites", "favourite", "favourites", "my favourite", "my favourites"]
     }
 
     private func sectionRepresentsFavorites(_ section: DragonYouTubeSection) -> Bool {
