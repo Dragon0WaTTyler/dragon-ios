@@ -1,9 +1,7 @@
 import Foundation
 import SwiftUI
-import WebKit
 
 struct YouTubeWatchView: View {
-    @Environment(\.openURL) private var openURL
     @State private var currentVideo: DragonYouTubeVideo
     let videos: [DragonYouTubeVideo]
 
@@ -14,35 +12,6 @@ struct YouTubeWatchView: View {
 
     private var videoID: String? {
         currentVideo.resolvedYouTubeVideoID
-    }
-
-    private var watchURL: URL? {
-        guard let videoID else {
-            return nil
-        }
-
-        return URL(string: "https://www.youtube.com/watch?v=\(videoID)")
-    }
-
-    private var embedURL: URL? {
-        guard let videoID = currentVideo.resolvedYouTubeVideoID else {
-            return nil
-        }
-
-        let queryItems = [
-            URLQueryItem(name: "playsinline", value: "1"),
-            URLQueryItem(name: "enablejsapi", value: "1"),
-            URLQueryItem(name: "origin", value: "https://www.youtube.com"),
-            URLQueryItem(name: "rel", value: "0"),
-            URLQueryItem(name: "modestbranding", value: "1")
-        ]
-
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = "www.youtube.com"
-        components.path = "/embed/\(videoID)"
-        components.queryItems = queryItems
-        return components.url
     }
 
     private var sectionLabel: String {
@@ -98,67 +67,7 @@ struct YouTubeWatchView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Group {
-                        if let embedURL {
-                            YouTubePlayerWebView(url: embedURL)
-                        } else {
-                            YouTubePlayerUnavailableView()
-                        }
-                    }
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .background(DragonTheme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        if let watchURL {
-                            Button {
-                                openURL(watchURL)
-                            } label: {
-                                Label("Open in YouTube", systemImage: "arrow.up.right.square")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(DragonTheme.card)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 14)
-                                            .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Text("If YouTube blocks embedded playback on iPhone, open the video in YouTube.")
-                            .font(.footnote)
-                            .foregroundStyle(.gray)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(currentVideo.title.isEmpty ? "Untitled video" : currentVideo.title)
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(nil)
-
-                        if !currentVideo.channel.isEmpty {
-                            Text(currentVideo.channel)
-                                .font(.headline)
-                                .foregroundStyle(DragonTheme.red)
-                        }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let publishedDateText = currentVideo.publishedDisplayText {
-                                MetadataLine(label: "Published", value: publishedDateText)
-                            }
-
-                            if !sectionLabel.isEmpty {
-                                MetadataLine(label: "Section", value: sectionLabel)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    playbackHeader
 
                     YouTubeRecommendationSection(
                         title: "More From This List",
@@ -195,109 +104,81 @@ struct YouTubeWatchView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var playbackHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            DragonYouTubeInlinePlayerView(videoID: videoID)
+                .id(currentVideo.id)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(currentVideo.title.isEmpty ? "Untitled video" : currentVideo.title)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(nil)
+
+                if !currentVideo.channel.isEmpty {
+                    Text(currentVideo.channel)
+                        .font(.headline)
+                        .foregroundStyle(DragonTheme.red)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    if let publishedDateText = currentVideo.publishedDisplayText {
+                        MetadataLine(label: "Published", value: publishedDateText)
+                    }
+
+                    if !sectionLabel.isEmpty {
+                        MetadataLine(label: "Section", value: sectionLabel)
+                    }
+
+                    let duration = currentVideo.duration.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !duration.isEmpty {
+                        MetadataLine(label: "Duration", value: duration)
+                    }
+                }
+
+                if let videoID {
+                    Button {
+                        DragonYouTubePlaybackHelper.open(videoID: videoID)
+                    } label: {
+                        Label("Open in YouTube", systemImage: "arrow.up.right.square")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(DragonTheme.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Group {
+                    if videoID != nil {
+                        Text("The in-app player is visible by default. If YouTube blocks embedded playback for this video, Open in YouTube remains available below.")
+                    } else {
+                        Text("The in-app player is visible by default, but this item does not expose a usable YouTube ID yet.")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.gray)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DragonTheme.card)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(DragonTheme.red.opacity(0.25), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func recommendedVideos(matching predicate: (DragonYouTubeVideo) -> Bool) -> [DragonYouTubeVideo] {
         videos
             .filter { $0.id != currentVideo.id }
             .filter(predicate)
             .prefix(8)
             .map { $0 }
-    }
-}
-
-struct YouTubePlayerWebView: UIViewRepresentable {
-    let url: URL
-
-    final class Coordinator {
-        var lastLoadedURL: URL?
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.allowsInlineMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.isOpaque = false
-        webView.backgroundColor = .black
-        webView.scrollView.backgroundColor = .black
-        webView.scrollView.isScrollEnabled = false
-        webView.allowsBackForwardNavigationGestures = false
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        let html = Self.embedHTML(for: url)
-        if context.coordinator.lastLoadedURL != url {
-            context.coordinator.lastLoadedURL = url
-            webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
-        }
-    }
-
-    private static func embedHTML(for url: URL) -> String {
-        let escapedURL = url.absoluteString
-        return """
-        <!doctype html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-          <meta name="referrer" content="strict-origin-when-cross-origin">
-          <style>
-            html, body {
-              margin: 0;
-              padding: 0;
-              background: #000;
-              width: 100%;
-              height: 100%;
-              overflow: hidden;
-            }
-            iframe {
-              border: 0;
-              width: 100%;
-              height: 100%;
-              background: #000;
-            }
-          </style>
-        </head>
-        <body>
-          <iframe
-            src="\(escapedURL)"
-            title="YouTube video player"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowfullscreen
-            playsinline
-            referrerpolicy="strict-origin-when-cross-origin"></iframe>
-        </body>
-        </html>
-        """
-    }
-}
-
-struct YouTubePlayerUnavailableView: View {
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.55)
-
-            VStack(spacing: 10) {
-                Image(systemName: "exclamationmark.play")
-                    .font(.title2)
-                    .foregroundStyle(DragonTheme.red)
-
-                Text("Video ID unavailable")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                Text("Dragon could not build an embedded player for this item. YouTube may also block embedded playback on iPhone.")
-                    .font(.footnote)
-                    .foregroundStyle(.gray)
-                    .multilineTextAlignment(.center)
-            }
-            .padding()
-        }
     }
 }
 
