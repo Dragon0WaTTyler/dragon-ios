@@ -10,6 +10,9 @@ enum DragonDataSourceFactory {
     #endif
 
     static let cachedRemoteDataSource: DragonDataSource = DragonCachedDataSource(remote: DragonRemoteDataSource.shared)
+    static let nativeYouTubeDataSource: DragonDataSource = DragonNativeYouTubeDataSource(
+        fallback: cachedRemoteDataSource
+    )
     static let bundledSnapshotDataSource: DragonDataSource = DragonBundledSnapshotDataSource.shared
     static let remoteSnapshotDataSource: DragonDataSource = DragonRemoteSnapshotDataSource.shared
     static let mockDataSource: DragonDataSource = MockDragonDataSource()
@@ -35,6 +38,6 @@ enum DragonDataSourceFactory {
         }
         #endif
 
-        return cachedRemoteDataSource
+        return nativeYouTubeDataSource
     }
 }

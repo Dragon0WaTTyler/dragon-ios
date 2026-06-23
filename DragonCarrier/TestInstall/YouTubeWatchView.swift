@@ -32,7 +32,7 @@ struct YouTubeWatchView: View {
         let queryItems = [
             URLQueryItem(name: "playsinline", value: "1"),
             URLQueryItem(name: "enablejsapi", value: "1"),
-            URLQueryItem(name: "origin", value: "https://dragon99.pythonanywhere.com"),
+            URLQueryItem(name: "origin", value: "https://www.youtube.com"),
             URLQueryItem(name: "rel", value: "0"),
             URLQueryItem(name: "modestbranding", value: "1")
         ]
@@ -52,12 +52,18 @@ struct YouTubeWatchView: View {
             .joined(separator: " • ")
     }
 
-    private var latestWatchLater: [DragonYouTubeVideo] {
-        recommendedVideos { video in
-            video.source.localizedCaseInsensitiveContains("watch")
-                || video.section.localizedCaseInsensitiveContains("watchlater")
-                || video.group.localizedCaseInsensitiveContains("watchlater")
+    private var nearbyPlaylistVideos: [DragonYouTubeVideo] {
+        guard let currentIndex = videos.firstIndex(where: { $0.id == currentVideo.id || $0.video_id == currentVideo.video_id }) else {
+            return recommendedVideos { _ in true }
         }
+
+        let lowerBound = max(currentIndex - 4, 0)
+        let upperBound = min(currentIndex + 4, videos.count - 1)
+
+        return Array(videos[lowerBound...upperBound])
+            .filter { $0.id != currentVideo.id }
+            .prefix(8)
+            .map { $0 }
     }
 
     private var sameSectionOrGroup: [DragonYouTubeVideo] {
@@ -155,17 +161,17 @@ struct YouTubeWatchView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     YouTubeRecommendationSection(
-                        title: "Latest Watch Later",
-                        emptyMessage: "No Watch Later videos are available in the current data.",
-                        videos: latestWatchLater,
+                        title: "More From This List",
+                        emptyMessage: "No nearby videos are available in the current list.",
+                        videos: nearbyPlaylistVideos,
                         selectedVideoID: currentVideo.id
                     ) { video in
                         currentVideo = video
                     }
 
                     YouTubeRecommendationSection(
-                        title: "Same PocketTube Section",
-                        emptyMessage: "No matching PocketTube section or group videos are available in the current data.",
+                        title: "Same Section or Group",
+                        emptyMessage: "No matching section or group videos are available in the current list.",
                         videos: sameSectionOrGroup,
                         selectedVideoID: currentVideo.id
                     ) { video in
@@ -227,7 +233,7 @@ struct YouTubePlayerWebView: UIViewRepresentable {
         let html = Self.embedHTML(for: url)
         if context.coordinator.lastLoadedURL != url {
             context.coordinator.lastLoadedURL = url
-            webView.loadHTMLString(html, baseURL: URL(string: "https://dragon99.pythonanywhere.com"))
+            webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
         }
     }
 
@@ -442,27 +448,7 @@ extension DragonYouTubeVideo {
         return DragonYouTubeVideo.extractYouTubeVideoID(from: url)
     }
 
-    var publishedDisplayText: String? {
-        let rawValue = published_at.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawValue.isEmpty else {
-            return nil
-        }
-
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = parser.date(from: rawValue) {
-            return DragonYouTubeVideo.displayFormatter.string(from: date)
-        }
-
-        parser.formatOptions = [.withInternetDateTime]
-        if let date = parser.date(from: rawValue) {
-            return DragonYouTubeVideo.displayFormatter.string(from: date)
-        }
-
-        return rawValue
-    }
-
-    private static func extractYouTubeVideoID(from rawURL: String) -> String? {
+    static func extractYouTubeVideoID(from rawURL: String) -> String? {
         let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed),
               let host = url.host?.lowercased() else {
@@ -496,16 +482,8 @@ extension DragonYouTubeVideo {
         return nil
     }
 
-    private static func isValidYouTubeVideoID(_ value: String) -> Bool {
+    static func isValidYouTubeVideoID(_ value: String) -> Bool {
         let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
         return value.count == 11 && value.rangeOfCharacter(from: allowedCharacters.inverted) == nil
     }
-
-    private static let displayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.doesRelativeDateFormatting = true
-        return formatter
-    }()
 }

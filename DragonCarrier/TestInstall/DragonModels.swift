@@ -139,6 +139,83 @@ struct DragonArticlesResponse: Codable {
     }
 }
 
+enum DragonDateTextFormatter {
+    static func parsedDate(from rawValue: String) -> Date? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        for formatter in iso8601Parsers {
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        for formatter in fallbackDateParsers {
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+    static func absoluteText(for date: Date) -> String {
+        displayFormatter.string(from: date)
+    }
+
+    static func relativeText(for date: Date, relativeTo referenceDate: Date = Date()) -> String {
+        relativeFormatter.localizedString(for: date, relativeTo: referenceDate)
+    }
+
+    private static let iso8601Parsers: [ISO8601DateFormatter] = {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+
+        return [fractional, standard]
+    }()
+
+    private static let fallbackDateParsers: [DateFormatter] = {
+        let locale = Locale(identifier: "en_US_POSIX")
+        let timeZone = TimeZone(secondsFromGMT: 0)
+
+        func formatter(_ format: String) -> DateFormatter {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.dateFormat = format
+            return formatter
+        }
+
+        return [
+            formatter("yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"),
+            formatter("yyyy-MM-dd'T'HH:mm:ssXXXXX"),
+            formatter("yyyy-MM-dd HH:mm:ss"),
+            formatter("yyyy-MM-dd"),
+            formatter("EEE, dd MMM yyyy HH:mm:ss Z"),
+            formatter("EEE, dd MMM yyyy HH:mm Z")
+        ]
+    }()
+
+    private static let displayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+}
+
 struct DragonArticleFulltextStatus: Codable, Equatable {
     let status: String
     let display_label: String
@@ -451,7 +528,7 @@ extension DragonArticle {
     }
 
     var publishedDate: Date? {
-        DragonArticle.date(from: published_at)
+        DragonDateTextFormatter.parsedDate(from: published_at)
     }
 
     var publishedDisplayText: String? {
@@ -460,7 +537,7 @@ extension DragonArticle {
             return rawValue.isEmpty ? nil : rawValue
         }
 
-        return DragonArticle.displayFormatter.string(from: publishedDate)
+        return DragonDateTextFormatter.absoluteText(for: publishedDate)
     }
 
     var publishedRelativeDisplayText: String? {
@@ -468,7 +545,7 @@ extension DragonArticle {
             return publishedDisplayText
         }
 
-        return DragonArticle.relativeFormatter.localizedString(for: publishedDate, relativeTo: Date())
+        return DragonDateTextFormatter.relativeText(for: publishedDate)
     }
 
     var resolvedImageURL: URL? {
@@ -513,72 +590,6 @@ extension DragonArticle {
             && publishedDate >= referenceDate.addingTimeInterval(-86_400)
     }
 
-    private static func date(from rawValue: String) -> Date? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        for formatter in iso8601Parsers {
-            if let date = formatter.date(from: trimmed) {
-                return date
-            }
-        }
-
-        for formatter in fallbackDateParsers {
-            if let date = formatter.date(from: trimmed) {
-                return date
-            }
-        }
-
-        return nil
-    }
-
-    private static let iso8601Parsers: [ISO8601DateFormatter] = {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-
-        return [fractional, standard]
-    }()
-
-    private static let fallbackDateParsers: [DateFormatter] = {
-        let locale = Locale(identifier: "en_US_POSIX")
-        let timeZone = TimeZone(secondsFromGMT: 0)
-
-        func formatter(_ format: String) -> DateFormatter {
-            let formatter = DateFormatter()
-            formatter.locale = locale
-            formatter.timeZone = timeZone
-            formatter.dateFormat = format
-            return formatter
-        }
-
-        return [
-            formatter("yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"),
-            formatter("yyyy-MM-dd'T'HH:mm:ssXXXXX"),
-            formatter("yyyy-MM-dd HH:mm:ss"),
-            formatter("yyyy-MM-dd"),
-            formatter("EEE, dd MMM yyyy HH:mm:ss Z"),
-            formatter("EEE, dd MMM yyyy HH:mm Z")
-        ]
-    }()
-
-    private static let displayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.doesRelativeDateFormatting = true
-        return formatter
-    }()
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
 }
 
 enum DragonArticleTextCleaner {
@@ -1587,5 +1598,35 @@ struct DragonYouTubeVideo: Codable, Identifiable {
         }
 
         return defaultValue
+    }
+}
+
+extension DragonYouTubeVideo {
+    var publishedDate: Date? {
+        DragonDateTextFormatter.parsedDate(from: published_at)
+    }
+
+    var publishedDisplayText: String? {
+        guard let publishedDate else {
+            return nil
+        }
+
+        return DragonDateTextFormatter.absoluteText(for: publishedDate)
+    }
+
+    var publishedRelativeDisplayText: String? {
+        guard let publishedDate else {
+            return nil
+        }
+
+        return DragonDateTextFormatter.relativeText(for: publishedDate)
+    }
+
+    var savedRelativeDisplayText: String? {
+        guard let savedDate = DragonDateTextFormatter.parsedDate(from: saved_at) else {
+            return nil
+        }
+
+        return DragonDateTextFormatter.relativeText(for: savedDate)
     }
 }

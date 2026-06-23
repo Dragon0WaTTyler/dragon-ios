@@ -36,10 +36,20 @@ struct YouTubeVideoRow: View {
         return String(first).uppercased()
     }
 
+    private var metadataText: String? {
+        video.publishedRelativeDisplayText
+            ?? video.savedRelativeDisplayText
+            ?? durationText
+    }
+
+    private var durationText: String? {
+        let trimmed = video.duration.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private var subtitleText: String {
         let channel = video.channel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let metadataParts = [video.published_at, video.saved_at].filter { !$0.isEmpty }
-        let metadata = metadataParts.isEmpty ? video.duration.trimmingCharacters(in: .whitespacesAndNewlines) : metadataParts.joined(separator: " • ")
+        let metadata = metadataText ?? ""
 
         switch (channel.isEmpty, metadata.isEmpty) {
         case (true, true):

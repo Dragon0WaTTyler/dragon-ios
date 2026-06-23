@@ -22,6 +22,13 @@ struct DragonSettingsView: View {
     @State private var editingArticleSourceID: String?
     @State private var articleSourceErrorText: String?
     @State private var articleSourceStatusText: String?
+    @State private var youTubePlaylistURLDraft = DragonYouTubeSettingsStore().playlistURL
+    @State private var youTubeDisplayNameDraft = DragonYouTubeSettingsStore().displayName
+    @State private var youTubeAPIKeyDraft = ""
+    @State private var youTubeStoredPlaylistID = DragonYouTubeSettingsStore().playlistID
+    @State private var youTubeHasStoredAPIKey = DragonYouTubeSettingsStore().hasAPIKey
+    @State private var youTubeSettingsStatusText: String?
+    @State private var youTubeSettingsErrorText: String?
     @State private var articleCacheCount: Int = 0
     @State private var movieCacheCount: Int = 0
     @State private var totalCacheCount: Int = 0
@@ -33,6 +40,7 @@ struct DragonSettingsView: View {
     private let settingsStore = DragonBackendSettingsStore()
     private let notionSettingsStore = DragonNotionSettingsStore()
     private let articlesSourceStore = DragonArticlesSourceStore()
+    private let youTubeSettingsStore = DragonYouTubeSettingsStore()
     private let notionMoviesDataSource = DragonNotionMoviesDataSource()
     private let responseCache = DragonResponseCache.shared
 
@@ -82,17 +90,13 @@ struct DragonSettingsView: View {
                         .buttonStyle(.plain)
 
                         NavigationLink {
-                            placeholderPage(
-                                title: "YouTube",
-                                subtitle: "Video settings are not configured here yet.",
-                                message: "YouTube settings and source management are coming later. No existing YouTube behavior was changed in this refactor."
-                            )
+                            youTubePage
                         } label: {
                             DragonSettingsNavigationCard(
                                 title: "YouTube",
-                                message: "Section shell ready for future source and sync settings.",
-                                badgeText: "Coming later",
-                                badgeColor: .gray
+                                message: "Configure native playlist loading, local cache behavior, and secure API key storage.",
+                                badgeText: youTubeCardBadgeText,
+                                badgeColor: youTubeCardBadgeColor
                             )
                         }
                         .buttonStyle(.plain)
@@ -143,6 +147,9 @@ struct DragonSettingsView: View {
             }
             .task {
                 await loadInitialState()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: dragonYouTubeConfigurationDidChangeNotification)) { _ in
+                refreshYouTubeSettingsState()
             }
             .alert("Clear all cache?", isPresented: $showClearCacheConfirmation) {
                 Button("Clear", role: .destructive) {
@@ -257,6 +264,27 @@ struct DragonSettingsView: View {
                 subtitle: "Global cache tools for development and troubleshooting."
             ) {
                 developerCacheContent
+            }
+        }
+    }
+
+    private var youTubePage: some View {
+        DragonSettingsPageScaffold(
+            title: "YouTube",
+            subtitle: "Native playlist loading uses the YouTube Data API plus local on-device cache."
+        ) {
+            DragonSettingsSectionCard(
+                title: "YouTube Status",
+                subtitle: "This playlist is stored locally and loaded without a PythonAnywhere fallback."
+            ) {
+                youTubeStatusContent
+            }
+
+            DragonSettingsSectionCard(
+                title: "Playlist Source",
+                subtitle: "Paste a normal YouTube playlist link or a safe raw playlist ID."
+            ) {
+                youTubeSettingsContent
             }
         }
     }
@@ -554,6 +582,114 @@ struct DragonSettingsView: View {
         }
     }
 
+    private var youTubeStatusContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            DragonSettingsKeyValueRow(label: "Configuration", value: youTubeConfigurationLabel)
+            DragonSettingsKeyValueRow(label: "Playlist ID", value: youTubeStoredPlaylistID.isEmpty ? "Not saved" : youTubeStoredPlaylistID)
+            DragonSettingsKeyValueRow(label: "API key", value: youTubeHasStoredOrDraftAPIKey ? "Stored securely" : "Missing")
+
+            if !youTubeResolvedDisplayName.isEmpty {
+                DragonSettingsKeyValueRow(label: "Display name", value: youTubeResolvedDisplayName)
+            }
+
+            Text("The YouTube tab uses the saved playlist ID and YouTube API key directly on-device, then keeps a local cache for offline-safe fallback.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+        }
+    }
+
+    private var youTubeSettingsContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Use a normal playlist URL like https://www.youtube.com/playlist?list=PLAYLIST_ID or paste a safe raw playlist ID directly.")
+                .font(.caption)
+                .foregroundStyle(.gray)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Playlist URL or ID")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                DragonSettingsEditableField(
+                    placeholder: "https://www.youtube.com/playlist?list=...",
+                    text: $youTubePlaylistURLDraft
+                )
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Display Name (Optional)")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                DragonSettingsEditableField(
+                    placeholder: "Example: Dragon Watch Later",
+                    text: $youTubeDisplayNameDraft
+                )
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("YouTube API Key")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+
+                SecureField(
+                    youTubeHasStoredAPIKey ? "Stored securely. Paste a new key to replace it." : "AIza...",
+                    text: $youTubeAPIKeyDraft
+                )
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(Color.black.opacity(0.35))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(DragonTheme.red.opacity(0.35), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+
+            if let detectedPlaylistID = youTubeDetectedPlaylistID {
+                Text("Detected playlist ID: \(detectedPlaylistID)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.gray)
+                    .textSelection(.enabled)
+            }
+
+            Text(youTubeConfigurationLabel)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(youTubeCardBadgeColor)
+
+            if let youTubeSettingsErrorText, !youTubeSettingsErrorText.isEmpty {
+                Text(youTubeSettingsErrorText)
+                    .font(.caption)
+                    .foregroundStyle(DragonTheme.red)
+            }
+
+            if let youTubeSettingsStatusText, !youTubeSettingsStatusText.isEmpty {
+                Text(youTubeSettingsStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            HStack(spacing: 12) {
+                Button("Save YouTube Settings") {
+                    saveYouTubeSettings()
+                }
+                .buttonStyle(DragonFilledButtonStyle())
+
+                Button("Clear YouTube Settings") {
+                    clearYouTubeSettings()
+                }
+                .buttonStyle(DragonOutlineButtonStyle())
+            }
+        }
+    }
+
     private var articleSourceListContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             if articleSources.isEmpty {
@@ -734,6 +870,7 @@ struct DragonSettingsView: View {
         backendURLDraft = settingsStore.backendURL
         notionSourceIDDraft = notionSettingsStore.moviesSourceIdentifier
         articleSources = articlesSourceStore.loadSources()
+        refreshYouTubeSettingsState()
         await refreshCacheInfo()
     }
 
@@ -778,6 +915,48 @@ struct DragonSettingsView: View {
         } catch {
             notionConnectionState = .failed(error.localizedDescription)
         }
+    }
+
+    private func saveYouTubeSettings() {
+        youTubeSettingsErrorText = nil
+        youTubeSettingsStatusText = nil
+
+        do {
+            let configuration = try youTubeSettingsStore.saveConfiguration(
+                playlistValue: youTubePlaylistURLDraft,
+                displayName: youTubeDisplayNameDraft,
+                apiKey: youTubeAPIKeyDraft
+            )
+            youTubePlaylistURLDraft = configuration.playlistURL
+            youTubeDisplayNameDraft = configuration.displayName
+            youTubeStoredPlaylistID = configuration.playlistID
+            youTubeHasStoredAPIKey = configuration.hasAPIKey
+            youTubeAPIKeyDraft = ""
+            youTubeSettingsStatusText = "YouTube playlist settings saved."
+        } catch {
+            youTubeSettingsErrorText = error.localizedDescription
+        }
+    }
+
+    private func clearYouTubeSettings() {
+        youTubeSettingsErrorText = nil
+        youTubeSettingsStatusText = nil
+
+        do {
+            try youTubeSettingsStore.clearConfiguration()
+            refreshYouTubeSettingsState()
+            youTubeSettingsStatusText = "YouTube playlist settings cleared."
+        } catch {
+            youTubeSettingsErrorText = error.localizedDescription
+        }
+    }
+
+    private func refreshYouTubeSettingsState() {
+        youTubePlaylistURLDraft = youTubeSettingsStore.playlistURL
+        youTubeDisplayNameDraft = youTubeSettingsStore.displayName
+        youTubeStoredPlaylistID = youTubeSettingsStore.playlistID
+        youTubeHasStoredAPIKey = youTubeSettingsStore.hasAPIKey
+        youTubeAPIKeyDraft = ""
     }
 
     private func saveArticleSource() {
@@ -959,6 +1138,30 @@ struct DragonSettingsView: View {
         activeArticleFeedCount > 0 ? .green : DragonTheme.red
     }
 
+    private var youTubeCardBadgeText: String {
+        if !youTubeStoredPlaylistID.isEmpty && youTubeHasStoredOrDraftAPIKey {
+            return "Configured"
+        }
+
+        if !youTubeStoredPlaylistID.isEmpty {
+            return "API key missing"
+        }
+
+        return "Not configured"
+    }
+
+    private var youTubeCardBadgeColor: Color {
+        if !youTubeStoredPlaylistID.isEmpty && youTubeHasStoredOrDraftAPIKey {
+            return .green
+        }
+
+        if !youTubeStoredPlaylistID.isEmpty {
+            return DragonTheme.red
+        }
+
+        return .gray
+    }
+
     private var developerCardBadgeText: String {
         if totalCacheCount > 0 {
             return "\(totalCacheCount) cached"
@@ -1038,6 +1241,22 @@ struct DragonSettingsView: View {
         }
 
         return .gray
+    }
+
+    private var youTubeConfigurationLabel: String {
+        if !youTubeStoredPlaylistID.isEmpty && youTubeHasStoredOrDraftAPIKey {
+            return "YouTube playlist configured"
+        }
+
+        if !youTubeStoredPlaylistID.isEmpty {
+            return "Playlist saved, API key missing"
+        }
+
+        if !youTubePlaylistURLDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Ready to save playlist"
+        }
+
+        return "YouTube playlist not configured"
     }
 
     private var notionConnectionLabel: String {
@@ -1163,6 +1382,22 @@ struct DragonSettingsView: View {
 
     private var notionHasStoredOrDraftToken: Bool {
         !notionTokenDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || notionSettingsStore.hasToken
+    }
+
+    private var youTubeHasStoredOrDraftAPIKey: Bool {
+        !youTubeAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || youTubeHasStoredAPIKey
+    }
+
+    private var youTubeDetectedPlaylistID: String? {
+        DragonYouTubePlaylistIdentifier.extract(from: youTubePlaylistURLDraft)
+    }
+
+    private var youTubeResolvedDisplayName: String {
+        let trimmedName = youTubeDisplayNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+        return youTubeSettingsStore.displayName
     }
 
     private static let byteCountFormatter: ByteCountFormatter = {
