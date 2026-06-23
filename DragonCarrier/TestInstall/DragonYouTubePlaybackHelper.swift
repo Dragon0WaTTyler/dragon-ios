@@ -112,7 +112,6 @@ struct DragonYouTubeInlinePlayerView: View {
         .frame(maxWidth: .infinity)
         .aspectRatio(16 / 9, contentMode: .fit)
         .background(Color.black)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 
