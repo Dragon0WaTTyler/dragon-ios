@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct DragonYouTubeBrowserView: View {
+    private static let fallbackPocketTubeFavoritesKey = "favorites"
+
     private enum Mode: String, CaseIterable, Identifiable {
         case playlist
         case pocketTube
@@ -270,16 +272,39 @@ struct DragonYouTubeBrowserView: View {
                     && normalizedKey != "last"
                     && normalizedLabel != "watch later"
                     && normalizedLabel != "last"
+                    && !sectionRepresentsFavorites(section)
             }
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
 
-        return [FilterChip(key: nil, label: "All")] + pocketTubeSections.map {
+        let favoritesChip = FilterChip(
+            key: preferredPocketTubeFavoritesSectionKey(),
+            label: favoritePocketTubeSectionLabel
+        )
+
+        return [FilterChip(key: nil, label: "All"), favoritesChip] + pocketTubeSections.map {
             FilterChip(key: $0.key, label: $0.label.isEmpty ? "Untitled" : $0.label)
         }
     }
 
     private func isSelectedChip(_ chip: FilterChip) -> Bool {
         chip.key == selectedPocketTubeSectionKey
+    }
+
+    private var favoritePocketTubeSection: DragonYouTubeSection? {
+        sections.first(where: sectionRepresentsFavorites)
+    }
+
+    private var favoritePocketTubeSectionLabel: String {
+        let label = favoritePocketTubeSection?.label.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return label.isEmpty ? "Favorites" : label
+    }
+
+    private var isFavoritesSelected: Bool {
+        guard let selectedPocketTubeSectionKey else {
+            return false
+        }
+
+        return favoriteSectionKeyAliases.contains(normalizedSectionKey(selectedPocketTubeSectionKey))
     }
 
     private var currentSubtitle: String {
@@ -331,12 +356,20 @@ struct DragonYouTubeBrowserView: View {
     }
 
     private var pocketTubeEmptyStateTitle: String {
-        "No videos in this section."
+        if isFavoritesSelected {
+            return "No favorite videos yet."
+        }
+
+        return "No videos in this section."
     }
 
     private var pocketTubeEmptyStateMessage: String {
         if let currentErrorText {
             return currentErrorText
+        }
+
+        if isFavoritesSelected {
+            return "Add favorites in PocketTube, then pull to refresh."
         }
 
         return "Pull to refresh to check again."
@@ -378,8 +411,8 @@ struct DragonYouTubeBrowserView: View {
 
         if newMode == .pocketTube {
             await loadSectionsIfNeeded(forceReload: false)
-            if selectedPocketTubeSectionKey == nil && filterChips.count > 1 {
-                selectedPocketTubeSectionKey = filterChips.dropFirst().first?.key
+            if selectedPocketTubeSectionKey == nil {
+                selectedPocketTubeSectionKey = preferredPocketTubeFavoritesSectionKey()
             }
         }
         await loadVideosForCurrentMode(reset: true)
@@ -428,7 +461,13 @@ struct DragonYouTubeBrowserView: View {
             didLoadSections = true
 
             let availableSectionKeys = Set(filterChips.compactMap(\.key))
-            if let selectedPocketTubeSectionKey, !availableSectionKeys.contains(selectedPocketTubeSectionKey) {
+            if let favoritePocketTubeSection,
+               let selectedPocketTubeSectionKey,
+               favoriteSectionKeyAliases.contains(normalizedSectionKey(selectedPocketTubeSectionKey)) {
+                self.selectedPocketTubeSectionKey = favoritePocketTubeSection.key
+            } else if let selectedPocketTubeSectionKey,
+                      !availableSectionKeys.contains(selectedPocketTubeSectionKey),
+                      !favoriteSectionKeyAliases.contains(normalizedSectionKey(selectedPocketTubeSectionKey)) {
                 self.selectedPocketTubeSectionKey = nil
             }
         } catch {
@@ -784,6 +823,19 @@ struct DragonYouTubeBrowserView: View {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    private var favoriteSectionKeyAliases: Set<String> {
+        ["favorite", "favorites", "favourite", "favourites"]
+    }
+
+    private func sectionRepresentsFavorites(_ section: DragonYouTubeSection) -> Bool {
+        favoriteSectionKeyAliases.contains(normalizedSectionKey(section.key))
+            || favoriteSectionKeyAliases.contains(normalizedSectionKey(section.label))
+    }
+
+    private func preferredPocketTubeFavoritesSectionKey() -> String {
+        favoritePocketTubeSection?.key ?? Self.fallbackPocketTubeFavoritesKey
     }
 
     private func normalizedSearchText(_ value: String) -> String {
