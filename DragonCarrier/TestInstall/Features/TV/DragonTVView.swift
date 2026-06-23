@@ -26,31 +26,33 @@ struct DragonTVView: View {
             ZStack {
                 DragonTheme.background.ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        DragonTVHeader(
-                            countLabel: viewModel.channelCountLabel,
-                            isRefreshing: viewModel.isLoading,
-                            selectedSection: selectedSection,
-                            currentChannelName: currentChannel?.name,
-                            onSelectSection: { selectedSection = $0 },
-                            onRefresh: refreshChannels
-                        )
+                VStack(alignment: .leading, spacing: 18) {
+                    DragonTVHeader(
+                        countLabel: viewModel.channelCountLabel,
+                        isRefreshing: viewModel.isLoading,
+                        selectedSection: selectedSection,
+                        currentChannelName: currentChannel?.name,
+                        onSelectSection: { selectedSection = $0 },
+                        onRefresh: refreshChannels
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+
+                    DragonTVSearchField(searchText: $viewModel.searchText)
                         .padding(.horizontal, 20)
-                        .padding(.top, 10)
 
-                        DragonTVSearchField(searchText: $viewModel.searchText)
-                            .padding(.horizontal, 20)
+                    DragonTVFilterStrip(selectedFilters: $viewModel.selectedFilters)
 
-                        DragonTVFilterStrip(selectedFilter: $viewModel.selectedFilter)
-
+                    ScrollView(showsIndicators: false) {
                         content
                             .padding(.horizontal, 20)
+                            .padding(.bottom, 96)
+                            .padding(.top, 2)
                     }
-                    .padding(.bottom, 96)
-                }
-                .refreshable {
-                    await viewModel.refresh()
+                    .refreshable {
+                        await viewModel.refresh()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
             .navigationBarHidden(true)
@@ -110,12 +112,12 @@ struct DragonTVView: View {
             }
         } else if !hasVisibleContent {
             DragonTVStateCard(
-                title: "No Matches",
-                message: "Try a different search or switch to another TV filter."
+                title: noMatchesTitle,
+                message: noMatchesMessage
             ) {
-                Button("Clear Search") {
+                Button(clearFiltersButtonTitle) {
                     viewModel.searchText = ""
-                    viewModel.selectedFilter = .all
+                    viewModel.selectedFilters = []
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
@@ -164,6 +166,34 @@ struct DragonTVView: View {
                 }
             }
         }
+    }
+
+    private var noMatchesTitle: String {
+        if viewModel.hasActiveFilters && viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "No channels match these filters."
+        }
+
+        return "No Matches"
+    }
+
+    private var noMatchesMessage: String {
+        if viewModel.hasActiveFilters && viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Try removing one or more filters or switch to another TV section."
+        }
+
+        return "Try a different search or switch to another TV filter."
+    }
+
+    private var clearFiltersButtonTitle: String {
+        let hasSearch = !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasSearch && viewModel.hasActiveFilters {
+            return "Clear Search & Filters"
+        }
+        if viewModel.hasActiveFilters {
+            return "Clear Filters"
+        }
+
+        return "Clear Search"
     }
 
     private func refreshChannels() {
@@ -418,27 +448,48 @@ private struct DragonTVSearchField: View {
 }
 
 private struct DragonTVFilterStrip: View {
-    @Binding var selectedFilter: DragonTVFilter
+    @Binding var selectedFilters: Set<DragonTVFilter>
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(DragonTVFilter.allCases) { filter in
                     Button {
-                        selectedFilter = filter
+                        toggle(filter)
                     } label: {
                         Text(filter.title)
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(selectedFilter == filter ? .white : .gray)
+                            .foregroundStyle(isSelected(filter) ? .white : .gray)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .background(selectedFilter == filter ? DragonTheme.red.opacity(0.9) : DragonTheme.card)
+                            .background(isSelected(filter) ? DragonTheme.red.opacity(0.9) : DragonTheme.card)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 20)
+        }
+    }
+
+    private func isSelected(_ filter: DragonTVFilter) -> Bool {
+        if filter == .all {
+            return selectedFilters.normalizedTVFilters.isEmpty
+        }
+
+        return selectedFilters.contains(filter)
+    }
+
+    private func toggle(_ filter: DragonTVFilter) {
+        if filter == .all {
+            selectedFilters.removeAll()
+            return
+        }
+
+        if selectedFilters.contains(filter) {
+            selectedFilters.remove(filter)
+        } else {
+            selectedFilters.insert(filter)
         }
     }
 }

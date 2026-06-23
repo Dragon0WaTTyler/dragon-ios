@@ -15,7 +15,7 @@ final class DragonTVViewModel: ObservableObject {
     @Published private(set) var lastUpdatedAt: Date?
     @Published private(set) var lastHealthCheckedAt: Date?
     @Published var searchText: String
-    @Published var selectedFilter: DragonTVFilter
+    @Published var selectedFilters: Set<DragonTVFilter>
     @Published var errorMessage: String?
 
     private let dataSource: DragonTVDataSource
@@ -38,7 +38,7 @@ final class DragonTVViewModel: ObservableObject {
         initialLastUpdatedAt: Date? = nil,
         initialLastHealthCheckedAt: Date? = nil,
         initialSearchText: String = "",
-        initialSelectedFilter: DragonTVFilter = .all,
+        initialSelectedFilters: Set<DragonTVFilter> = [],
         initialErrorMessage: String? = nil
     ) {
         let loadedFavoriteIDs = favoritesStore.loadFavoriteIDs()
@@ -58,7 +58,7 @@ final class DragonTVViewModel: ObservableObject {
         self.lastUpdatedAt = initialLastUpdatedAt
         self.lastHealthCheckedAt = initialLastHealthCheckedAt
         self.searchText = initialSearchText
-        self.selectedFilter = initialSelectedFilter
+        self.selectedFilters = initialSelectedFilters.normalizedTVFilters
         self.errorMessage = initialErrorMessage
     }
 
@@ -68,7 +68,7 @@ final class DragonTVViewModel: ObservableObject {
             .lowercased()
 
         return channels.filter { channel in
-            guard selectedFilter.matches(channel) else {
+            guard selectedFilters.matches(channel) else {
                 return false
             }
 
@@ -96,6 +96,10 @@ final class DragonTVViewModel: ObservableObject {
 
     var favoriteCount: Int {
         channels.filter(\.isFavorite).count
+    }
+
+    var hasActiveFilters: Bool {
+        !selectedFilters.normalizedTVFilters.isEmpty
     }
 
     var channelCountLabel: String {

@@ -324,6 +324,21 @@ enum DragonTVFilter: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+extension Set where Element == DragonTVFilter {
+    var normalizedTVFilters: Set<DragonTVFilter> {
+        subtracting([.all])
+    }
+
+    func matches(_ channel: IPTVChannel) -> Bool {
+        let filters = normalizedTVFilters
+        guard !filters.isEmpty else {
+            return true
+        }
+
+        return filters.allSatisfy { $0.matches(channel) }
+    }
+}
+
 enum DragonTVCategoryTag: String, CaseIterable, Sendable {
     case arabic
     case sports
